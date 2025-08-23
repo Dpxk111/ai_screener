@@ -10,6 +10,8 @@ from django.utils.decorators import method_decorator
 from django.views import View
 import json
 from datetime import datetime
+from django.db.models import Q
+
 
 
 from .models import Candidate, JobDescription, Interview, InterviewResponse, InterviewResult
@@ -43,6 +45,25 @@ class JDToQuestionsView(APIView):
             title = serializer.validated_data["title"]
             description = serializer.validated_data["description"]
 
+            # Check if JD already exists (duplicate)
+            existing_jd = JobDescription.objects.filter(
+                Q(title=title) & Q(description=description)
+            ).first()
+
+            if existing_jd:
+                # Object exists, return its ID and questions
+                print("Existsssssss\n\n\n\n\n")
+                return Response(
+                    {
+                        "id": existing_jd.id,
+                        "title": existing_jd.title,
+                        "questions": existing_jd.questions,
+                        "message": "Job description already exists"
+                    },
+                    status=status.HTTP_200_OK
+                )
+
+            # Object does not exist, create new
             openai_service = OpenAIService()
             try:
                 questions = openai_service.generate_questions_from_jd(title, description)
@@ -57,9 +78,15 @@ class JDToQuestionsView(APIView):
                 description=description,
                 questions=questions
             )
+            print(JobDescription.objects.all(), "JOB DESCRIPTION CREATED/n/n/n/n/n/n/n")
 
             return Response(
-                {"id": jd.id, "title": jd.title, "questions": jd.questions},
+                {
+                    "id": jd.id,
+                    "title": jd.title,
+                    "questions": jd.questions,
+                    "message": "Job description created successfully"
+                },
                 status=status.HTTP_201_CREATED
             )
 
@@ -129,7 +156,12 @@ class TriggerInterviewView(BaseAPIView):
             job_description_id = serializer.validated_data['job_description_id']
             
             candidate = get_object_or_404(Candidate, id=candidate_id)
+            print("errorrorororororoo=============")
+
             job_description = get_object_or_404(JobDescription, id=job_description_id)
+            print("errorrorororororoo==========")
+
+
             
             # Create interview record
             interview = Interview.objects.create(
