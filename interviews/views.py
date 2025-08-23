@@ -43,7 +43,6 @@ class JDToQuestionsView(APIView):
             title = serializer.validated_data["title"]
             description = serializer.validated_data["description"]
 
-            # Generate questions using OpenAI
             openai_service = OpenAIService()
             try:
                 questions = openai_service.generate_questions_from_jd(title, description)
@@ -53,7 +52,6 @@ class JDToQuestionsView(APIView):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
 
-            # Save job description with questions
             jd = JobDescription.objects.create(
                 title=title,
                 description=description,
@@ -61,11 +59,7 @@ class JDToQuestionsView(APIView):
             )
 
             return Response(
-                {
-                    "id": jd.id,
-                    "title": jd.title,
-                    "questions": jd.questions
-                },
+                {"id": jd.id, "title": jd.title, "questions": jd.questions},
                 status=status.HTTP_201_CREATED
             )
 
@@ -296,8 +290,8 @@ class TwilioWebhookView(View):
             response.save()
             
             # Analyze response
-            ollama_service = OllamaService()
-            score, feedback = ollama_service.analyze_response(
+            openai_service = OpenAIService()
+            score, feedback = openai_service.analyze_response(
                 question, 
                 response.transcript,
                 interview.candidate.resume_text
@@ -317,8 +311,8 @@ class TwilioWebhookView(View):
         responses = InterviewResponse.objects.filter(interview=interview).order_by('question_number')
         
         if responses.exists():
-            ollama_service = OllamaService()
-            result_data = ollama_service.generate_final_recommendation(
+            openai_service = OpenAIService()
+            result_data = openai_service.generate_final_recommendation(
                 responses, 
                 interview.candidate.resume_text
             )

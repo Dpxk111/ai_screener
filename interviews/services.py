@@ -10,17 +10,20 @@ from .models import Interview, InterviewResponse, InterviewResult
 import json
 
 
+from openai import OpenAI
 import openai
-
 # Set your OpenAI API key from environment variable
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
+
 class OpenAIService:
-    """Service for interacting with OpenAI API (updated for openai>=1.0.0)"""
+    """Service for generating interview questions and analyzing responses using OpenAI v1.0+"""
 
     def __init__(self):
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4")
+        self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # Or gpt-4
 
     def _make_request(self, prompt, temperature=0.7, max_tokens=500):
         """Send prompt to OpenAI and return response text"""
@@ -37,7 +40,7 @@ class OpenAIService:
             raise
 
     def generate_questions_from_jd(self, job_title, job_description):
-        """Generate 5-7 relevant interview questions from job description"""
+        """Generate 5-7 interview questions from job description"""
         prompt = f"""
         Based on the following job description, generate 5-7 relevant interview questions.
 
@@ -57,9 +60,92 @@ class OpenAIService:
         try:
             questions = json.loads(questions_text)
         except json.JSONDecodeError:
+            # fallback: split by lines
             questions = [q.strip().strip('"').strip("'") for q in questions_text.split("\n") if q.strip()]
 
         return questions[:7]
+
+    def analyze_response(self, question, response_text, resume_context=""):
+        """Analyze a candidate's response and provide score and feedback"""
+        prompt = f"""
+        Analyze this interview response and provide a score (0-10) and feedback.
+
+        Question: {question}
+        Response: {response_text}
+        Resume Context: {resume_context}
+
+        Evaluate based on:
+        - Relevance to the question
+        - Clarity and communication
+        - Specificity and examples
+        - Professionalism
+
+        Return as JSON: {{"score": float, "feedback": "string"}}
+        """
+        try:
+            result_text = self._make_request(prompt, temperature=0.3, max_tokens=300)
+            try:
+                result = json.loads(result_text)
+                return result.get("score", 5.0), result.get("feedback", "No specific feedback available.")
+            except json.JSONDecodeError:
+                return 5.0, "Analysis completed but feedback format was unexpected."
+        except Exception as e:
+            print(f"Error analyzing response: {e}")
+            return 5.0, "Unable to analyze response due to technical issues."
+
+    def generate_final_recommendation(self, interview_responses, resume_context=""):
+        """Generate final interview recommendation and overall score"""
+        responses_summary = "\n".join([
+            f"Q{i+1}: {resp.question}\nA{i+1}: {resp.transcript}\nScore: {resp.score}\n"
+            for i, resp in enumerate(interview_responses)
+        ])
+
+        prompt = f"""
+        Based on these interview responses, provide a comprehensive evaluation:
+
+        Resume Context: {resume_context}
+
+        Interview Responses:
+        {responses_summary}
+
+        Provide:
+        1. Overall score (0-10)
+        2. Recommendation (hire/consider/reject with reasoning)
+        3. Key strengths (list)
+        4. Areas for improvement (list)
+
+        Return as JSON:
+        {{
+            "overall_score": float,
+            "recommendation": "string",
+            "strengths": ["string"],
+            "areas_for_improvement": ["string"]
+        }}
+        """
+
+        try:
+            result_text = self._make_request(prompt, temperature=0.3, max_tokens=500)
+            try:
+                result = json.loads(result_text)
+                return result
+            except json.JSONDecodeError:
+                return {
+                    "overall_score": 5.0,
+                    "recommendation": "Consider - Analysis completed but recommendation format was unexpected.",
+                    "strengths": ["Analysis completed"],
+                    "areas_for_improvement": ["Unable to provide specific feedback"]
+                }
+
+        except Exception as e:
+            print(f"Error generating recommendation: {e}")
+            return {
+                "overall_score": 5.0,
+                "recommendation": "Consider - Unable to generate recommendation due to technical issues.",
+                "strengths": ["Interview completed"],
+                "areas_for_improvement": ["Technical analysis unavailable"]
+            }   
+
+
 class TwilioService:
     """Service for Twilio voice call integration"""
     
