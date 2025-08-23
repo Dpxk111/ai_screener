@@ -137,30 +137,28 @@ class TriggerInterviewView(BaseAPIView):
             )
             
             # Initiate call
-            try:
-                twilio_service = TwilioService()
-                call_sid = twilio_service.initiate_call(
-                    str(interview.id),
-                    candidate.phone,
-                    job_description.questions
-                )
-                
-                interview.twilio_call_sid = call_sid
-                interview.status = 'in_progress'
-                interview.save()
-                
-                return Response({
-                    'interview_id': interview.id,
-                    'call_sid': call_sid,
-                    'status': 'call_initiated'
-                }, status=status.HTTP_200_OK)
-                
-            except Exception as e:
-                interview.status = 'failed'
-                interview.save()
-                return Response({
-                    'error': str(e)
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            twilio_service = TwilioService()
+            call_sid = twilio_service.initiate_call(
+                str(interview.id),
+                candidate.phone,
+                job_description.questions
+            )
+            
+            interview.twilio_call_sid = call_sid
+            interview.status = 'in_progress'
+            interview.save()
+            
+            return Response({
+                'interview_id': interview.id,
+                'call_sid': call_sid,
+                'status': 'call_initiated'
+            }, status=status.HTTP_200_OK)
+            
+            interview.status = 'failed'
+            interview.save()
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
