@@ -188,15 +188,12 @@ class TwilioService:
                 whitelisted_numbers = json.loads(whitelist_env)
             except json.JSONDecodeError:
                 whitelisted_numbers = ["*"]
-            print(whitelisted_numbers, "WHITELISTED NUMBERS/n/n/n/n/n/n/n")
-            print(candidate_phone, "CANDIDATE PHONE/n/n/n/n/n/n/n")
+
             # Check if number is allowed
             if '*' not in whitelisted_numbers and candidate_phone not in whitelisted_numbers:
-                print("Phone number is not whitelisted", whitelisted_numbers, candidate_phone)
                 raise ValueError(f"Phone number {candidate_phone} is not whitelisted")
 
-            # Create TwiML for the call
-            twiml = self._create_interview_twiml(interview_id, questions)
+            twiml = self._create_interview_twiml(interview_id, question_number=1, questions=questions)
 
             # Make the call
             call = self.client.calls.create(
@@ -213,7 +210,7 @@ class TwilioService:
         except Exception as e:
             print(f"Error initiating call: {e}")
             raise
-    
+        
     def _create_interview_twiml(self, interview_id, question_number, questions):
         response = VoiceResponse()
 
