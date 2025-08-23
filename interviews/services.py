@@ -287,28 +287,102 @@ class TranscriptionService:
     def transcribe_audio(self, audio_url):
         """Transcribe audio from URL using OpenAI Whisper"""
         try:
-            # Extract recording SID from Twilio URL
-            # URL format: https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Recordings/{RecordingSid}
-            recording_sid = audio_url.split('/')[-1]
+            print(f"[TRANSCRIPTION] Starting transcription for URL: {audio_url}")
             
-            # Get the recording using Twilio client (authenticated)
-            recording = self.twilio_client.recordings(recording_sid).fetch()
+            # Method 1: Try direct download first (for some Twilio URLs)
+            try:
+                print("[TRANSCRIPTION] Attempting direct download...")
+                response = requests.get(audio_url, timeout=30)
+                if response.status_code == 200:
+                    audio_data = response.content
+                    print(f"[TRANSCRIPTION] Direct download successful, size: {len(audio_data)} bytes")
+                else:
+                    print(f"[TRANSCRIPTION] Direct download failed: {response.status_code}")
+                    raise Exception("Direct download failed")
+            except Exception as e:
+                print(f"[TRANSCRIPTION] Direct download error: {e}")
+                
+                # Method 2: Use Twilio client for authenticated access
+                try:
+                    print("[TRANSCRIPTION] Attempting Twilio client method...")
+                    
+                    # Extract recording SID from various possible URL formats
+                    if '/Recordings/' in audio_url:
+                        recording_sid = audio_url.split('/Recordings/')[-1].split('?')[0]
+                    else:
+                        recording_sid = audio_url.split('/')[-1].split('?')[0]
+                    
+                    print(f"[TRANSCRIPTION] Extracted recording SID: {recording_sid}")
+                    
+                    # Get the recording using Twilio client
+                    recording = self.twilio_client.recordings(recording_sid).fetch()
+                    print(f"[TRANSCRIPTION] Recording fetched: {recording.sid}")
+                    
+                    # Try different media URLs
+                    media_urls = []
+                    if hasattr(recording, 'media_location'):
+                        media_urls.append(recording.media_location)
+                    if hasattr(recording, 'uri'):
+                        media_urls.append(f"https://api.twilio.com{recording.uri}.mp3")
+                    
+                    audio_data = None
+                    for media_url in media_urls:
+                        try:
+                            print(f"[TRANSCRIPTION] Trying media URL: {media_url}")
+                            response = requests.get(
+                                media_url,
+                                auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN')),
+                                timeout=30
+                            )
+                            if response.status_code == 200:
+                                audio_data = response.content
+                                print(f"[TRANSCRIPTION] Media download successful, size: {len(audio_data)} bytes")
+                                break
+                            else:
+                                print(f"[TRANSCRIPTION] Media download failed: {response.status_code}")
+                        except Exception as e:
+                            print(f"[TRANSCRIPTION] Media download error: {e}")
+                    
+                    if not audio_data:
+                        raise Exception("Could not download audio from any media URL")
+                        
+                except Exception as e:
+                    print(f"[TRANSCRIPTION] Twilio client method error: {e}")
+                    raise
             
-            # Download the audio file with proper authentication
-            audio_data = requests.get(
-                recording.media_location,
-                auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN'))
-            ).content
-            
-            # Use OpenAI Whisper API for transcription
-            transcript = self.openai_client.audio.transcriptions.create(
-                model="whisper-1",
-                file=("audio.wav", audio_data, "audio/wav"),
-                response_format="text"
-            )
-            
-            return transcript.strip()
-            
+            # Determine audio format and transcribe
+            if audio_data:
+                print(f"[TRANSCRIPTION] Audio data obtained, attempting transcription...")
+                
+                # Try different file formats
+                file_formats = [
+                    ("audio.wav", "audio/wav"),
+                    ("audio.mp3", "audio/mpeg"),
+                    ("audio.m4a", "audio/mp4"),
+                    ("audio.webm", "audio/webm")
+                ]
+                
+                for filename, mime_type in file_formats:
+                    try:
+                        print(f"[TRANSCRIPTION] Trying format: {mime_type}")
+                        transcript = self.openai_client.audio.transcriptions.create(
+                            model="whisper-1",
+                            file=(filename, audio_data, mime_type),
+                            response_format="text"
+                        )
+                        
+                        result = transcript.strip()
+                        print(f"[TRANSCRIPTION] Success! Transcript: {result[:100]}...")
+                        return result
+                        
+                    except Exception as e:
+                        print(f"[TRANSCRIPTION] Format {mime_type} failed: {e}")
+                        continue
+                
+                raise Exception("All audio formats failed")
+            else:
+                raise Exception("No audio data obtained")
+                
         except Exception as e:
-            print(f"Transcription error: {e}")
-            return "Unable to transcribe audio due to technical issues."
+            print(f"[TRANSCRIPTION] Final error: {e}")
+            return f"Unable to transcribe audio: {str(e)}"
