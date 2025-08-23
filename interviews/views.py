@@ -2,7 +2,7 @@ import os
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, BasePermission
 from rest_framework.response import Response
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -20,19 +20,17 @@ from .serializers import (
 from .services import OpenAIService, TwilioService, ResumeParserService
 
 
+class APIKeyPermission(BasePermission):
+    """Custom permission to check API key"""
+    
+    def has_permission(self, request, view):
+        api_key = request.headers.get('X-API-Key') or request.GET.get('api_key')
+        return api_key == os.getenv('API_KEY')
+
+
 class BaseAPIView(APIView):
     """Base API view with API key authentication"""
-    permission_classes = [AllowAny]
-    
-    def dispatch(self, request, *args, **kwargs):
-        """Check API key before processing request"""
-        api_key = request.headers.get('X-API-Key') or request.GET.get('api_key')
-        if not api_key or api_key != os.getenv('API_KEY'):
-            return Response(
-                {'error': 'Invalid or missing API key'}, 
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        return super().dispatch(request, *args, **kwargs)
+    permission_classes = [APIKeyPermission]
 
 
 class JDToQuestionsView(BaseAPIView):
