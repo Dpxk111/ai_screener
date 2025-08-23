@@ -248,13 +248,11 @@ class HealthCheckView(APIView):
         })
 
 
-# Webhook views for Twilio
 @method_decorator(csrf_exempt, name='dispatch')
 class TwilioWebhookView(View):
-    """Handle Twilio webhooks"""
-    
+    """Handle Twilio webhooks for call status and recorded responses"""
+
     def post(self, request, *args, **kwargs):
-        """Handle Twilio webhook POST requests"""
         webhook_type = kwargs.get('webhook_type')
         
         if webhook_type == 'call-status':
@@ -262,8 +260,8 @@ class TwilioWebhookView(View):
         elif webhook_type == 'record-response':
             return self.handle_record_response(request)
         else:
-            return HttpResponse(status=400)
-    
+            return HttpResponse("Invalid webhook type", status=400)
+
     def handle_call_status(self, request):
         """Handle call status webhook"""
         call_sid = request.POST.get('CallSid')
@@ -271,10 +269,12 @@ class TwilioWebhookView(View):
         recording_url = request.POST.get('RecordingUrl')
         recording_sid = request.POST.get('RecordingSid')
         call_duration = request.POST.get('CallDuration')
-        
+
+        print(f"[CALL STATUS] SID: {call_sid}, Status: {call_status}, Recording: {recording_url}")
+
         try:
             interview = Interview.objects.get(twilio_call_sid=call_sid)
-            
+
             if call_status == 'completed':
                 interview.status = 'completed'
                 interview.audio_url = recording_url
@@ -282,77 +282,84 @@ class TwilioWebhookView(View):
                 interview.duration = int(call_duration) if call_duration else None
                 interview.completed_at = datetime.now()
                 interview.save()
-                
-                # Generate final results
+
+                print(f"[INTERVIEW COMPLETED] ID: {interview.id}")
+
+                # Generate final results only after call completes
                 self.generate_final_results(interview)
-            
+
             return HttpResponse(status=200)
-            
         except Interview.DoesNotExist:
+            print(f"[ERROR] Interview with SID {call_sid} not found")
             return HttpResponse(status=404)
-    
+
     def handle_record_response(self, request):
-        """Handle recorded response webhook"""
+        """Handle recorded response and return next question"""
         interview_id = request.GET.get('interview_id')
         question_number = int(request.GET.get('question_number', 1))
+
+        interview = get_object_or_404(Interview, id=interview_id)
+        questions = interview.job_description.questions
+        print(f"[RECORD RESPONSE] Interview: {interview_id}, Question: {question_number}")
+
+        # Save current recording
         recording_url = request.POST.get('RecordingUrl')
-        
+        if question_number <= len(questions):
+            question_text = questions[question_number - 1]
+        else:
+            question_text = f"Question {question_number}"
+
+        response_obj, created = InterviewResponse.objects.get_or_create(
+            interview=interview,
+            question_number=question_number,
+            defaults={"question": question_text, "transcript": "Processing..."}
+        )
+        response_obj.audio_url = recording_url
+        response_obj.save()
+        print(f"[SAVED RESPONSE] Q{question_number}, URL: {recording_url}")
+
+        # Analyze response asynchronously or immediately (simplified)
         try:
-            interview = Interview.objects.get(id=interview_id)
-            job_description = interview.job_description
-            
-            # Get the question
-            if question_number <= len(job_description.questions):
-                question = job_description.questions[question_number - 1]
-            else:
-                question = f"Question {question_number}"
-            
-            # Create response record
-            response = InterviewResponse.objects.create(
-                interview=interview,
-                question=question,
-                question_number=question_number,
-                audio_url=recording_url,
-                transcript="Processing..."  # Will be updated by STT
-            )
-            
-            # TODO: Implement STT to get transcript
-            # For now, we'll use a placeholder
-            response.transcript = f"Response to question {question_number}"
-            response.save()
-            
-            # Analyze response
             openai_service = OpenAIService()
             score, feedback = openai_service.analyze_response(
-                question, 
-                response.transcript,
+                question_text,
+                "Placeholder transcript",  # Replace with actual STT if available
                 interview.candidate.resume_text
             )
-            
-            response.score = score
-            response.feedback = feedback
-            response.save()
-            
-            return HttpResponse(status=200)
-            
-        except Interview.DoesNotExist:
-            return HttpResponse(status=404)
-    
+            response_obj.score = score
+            response_obj.feedback = feedback
+            response_obj.save()
+            print(f"[ANALYZED RESPONSE] Score: {score}, Feedback: {feedback}")
+        except Exception as e:
+            print(f"[ANALYSIS ERROR] {e}")
+
+        # Generate TwiML for next question
+        next_question_number = question_number + 1
+        twiml = TwilioService()._create_interview_twiml(interview_id, next_question_number, questions)
+
+        return HttpResponse(twiml, content_type='text/xml')
+
     def generate_final_results(self, interview):
-        """Generate final interview results"""
+        """Generate final interview results after all questions are done"""
         responses = InterviewResponse.objects.filter(interview=interview).order_by('question_number')
-        
-        if responses.exists():
+        if not responses.exists():
+            print(f"[NO RESPONSES] Interview {interview.id}")
+            return
+
+        try:
             openai_service = OpenAIService()
             result_data = openai_service.generate_final_recommendation(
-                responses, 
+                responses,
                 interview.candidate.resume_text
             )
-            
+
             InterviewResult.objects.create(
                 interview=interview,
-                overall_score=result_data['overall_score'],
-                recommendation=result_data['recommendation'],
-                strengths=result_data['strengths'],
-                areas_for_improvement=result_data['areas_for_improvement']
+                overall_score=result_data.get('overall_score', 5.0),
+                recommendation=result_data.get('recommendation', 'Consider'),
+                strengths=result_data.get('strengths', []),
+                areas_for_improvement=result_data.get('areas_for_improvement', [])
             )
+            print(f"[FINAL RESULTS GENERATED] Interview {interview.id}")
+        except Exception as e:
+            print(f"[FINAL RESULTS ERROR] {e}")
