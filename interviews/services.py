@@ -177,7 +177,7 @@ class TwilioService:
         """Initiate a voice call to the candidate"""
         try:
             # Validate phone number is whitelisted
-            whitelisted_numbers = os.getenv('WHITELISTED_NUMBERS', '').split(',')
+            whitelisted_numbers = os.getenv('WHITELISTED_NUMBERS', '["*"]').split(',')
             if candidate_phone not in whitelisted_numbers:
                 raise ValueError(f"Phone number {candidate_phone} is not whitelisted")
             
