@@ -50,7 +50,25 @@ class CreateInterviewSerializer(serializers.Serializer):
 
 
 class ResumeUploadSerializer(serializers.Serializer):
-    resume = serializers.FileField()
+    resume = serializers.FileField(
+        max_length=255,
+        allow_empty_file=False,
+        use_url=False
+    )
+    
+    def validate_resume(self, value):
+        """Validate resume file"""
+        # Check file size (max 10MB)
+        if value.size > 10 * 1024 * 1024:
+            raise serializers.ValidationError("File size must be under 10MB")
+        
+        # Check file extension
+        allowed_extensions = ['.pdf', '.docx', '.doc']
+        file_extension = value.name.lower()
+        if not any(file_extension.endswith(ext) for ext in allowed_extensions):
+            raise serializers.ValidationError("Only PDF and DOCX files are allowed")
+        
+        return value
 
 
 class JDToQuestionsSerializer(serializers.Serializer):
@@ -62,3 +80,18 @@ class CandidateCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Candidate
         fields = ['name', 'email', 'phone', 'resume']
+    
+    def validate_resume(self, value):
+        """Validate resume file"""
+        if value:
+            # Check file size (max 10MB)
+            if value.size > 10 * 1024 * 1024:
+                raise serializers.ValidationError("File size must be under 10MB")
+            
+            # Check file extension
+            allowed_extensions = ['.pdf', '.docx', '.doc']
+            file_extension = value.name.lower()
+            if not any(file_extension.endswith(ext) for ext in allowed_extensions):
+                raise serializers.ValidationError("Only PDF and DOCX files are allowed")
+        
+        return value
