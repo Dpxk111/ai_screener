@@ -320,7 +320,7 @@
 	"variable": [
 		{
 			"key": "base_url",
-			"value": "https://your-domain.com"
+			"value": "https://ai-screener-5.onrender.com"
 		},
 		{
 			"key": "api_key",

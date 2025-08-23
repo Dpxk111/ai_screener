@@ -8,6 +8,7 @@ import io
 from django.conf import settings
 from .models import Interview, InterviewResponse, InterviewResult
 import json
+import base64
 
 
 from openai import OpenAI
@@ -271,3 +272,35 @@ class ResumeParserService:
         except Exception as e:
             print(f"Error parsing DOCX: {e}")
             return "Unable to extract text from DOCX."
+
+
+class TranscriptionService:
+    """Service for transcribing audio recordings"""
+    
+    def __init__(self):
+        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    def transcribe_audio(self, audio_url):
+        """Transcribe audio from URL using OpenAI Whisper"""
+        try:
+            # Download audio file from Twilio URL
+            response = requests.get(audio_url)
+            if response.status_code != 200:
+                print(f"Failed to download audio: {response.status_code}")
+                return "Unable to transcribe audio - download failed."
+            
+            # Save temporarily and transcribe
+            audio_data = response.content
+            
+            # Use OpenAI Whisper API for transcription
+            transcript = self.openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=("audio.wav", audio_data, "audio/wav"),
+                response_format="text"
+            )
+            
+            return transcript.strip()
+            
+        except Exception as e:
+            print(f"Transcription error: {e}")
+            return "Unable to transcribe audio due to technical issues."

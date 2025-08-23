@@ -2,6 +2,8 @@
 
 A complete AI-powered interview screening system that automates the interview process using voice calls, AI-generated questions, and intelligent response analysis.
 
+**🌐 Live Demo**: https://ai-screener-5.onrender.com/
+
 ## Features
 
 - **JD to Questions**: Convert job descriptions to 5-7 relevant interview questions using AI
@@ -14,10 +16,10 @@ A complete AI-powered interview screening system that automates the interview pr
 ## Tech Stack
 
 - **Backend**: Django 5.2.5 + Django REST Framework
-- **AI**: OpenAI GPT-3.5-turbo for question generation and response analysis
+- **AI**: OpenAI GPT-4o-mini for question generation and response analysis
 - **Voice**: Twilio for automated voice calls and recording
 - **File Processing**: PyPDF2 and python-docx for resume parsing
-- **Deployment**: Gunicorn + Whitenoise for production
+- **Deployment**: Gunicorn + Whitenoise for production on Render.com
 
 ## Quick Start
 
@@ -54,7 +56,7 @@ ALLOWED_HOSTS=your-domain.com,localhost,127.0.0.1
 
 # OpenAI Configuration
 OPENAI_API_KEY=your-openai-api-key-here
-OPENAI_MODEL=gpt-3.5-turbo
+OPENAI_MODEL=gpt-4o-mini
 TWILIO_ACCOUNT_SID=your-twilio-account-sid-here
 TWILIO_AUTH_TOKEN=your-twilio-auth-token-here
 TWILIO_PHONE_NUMBER=+1234567890
@@ -64,7 +66,7 @@ API_KEY=your-custom-api-key-here
 WHITELISTED_NUMBERS=+1234567890,+1987654321
 
 # Webhook URLs (for production)
-WEBHOOK_BASE_URL=https://your-domain.com
+WEBHOOK_BASE_URL=https://ai-screener-5.onrender.com
 ```
 
 ### 3. Database Setup
@@ -119,8 +121,8 @@ Import the provided Postman collection and environment:
 1. **Collection**: `AI_Interview_Screener.postman_collection.json`
 2. **Environment**: `AI_Interview_Screener.postman_environment.json`
 
-Update the environment variables with your actual values:
-- `base_url`: Your hosted domain
+The environment is pre-configured with the live deployment URL. Update the environment variables with your actual values:
+- `base_url`: https://ai-screener-5.onrender.com (pre-configured)
 - `api_key`: Your API key
 - Other IDs will be populated as you use the API
 
@@ -138,7 +140,7 @@ Update the environment variables with your actual values:
    - Choose the repository branch (main/master)
 
 3. **Configure Service Settings**
-   - **Name**: `ai-interview-screener` (or your preferred name)
+   - **Name**: `ai-screener-5` (or your preferred name)
    - **Environment**: `Python 3`
    - **Build Command**: `pip install -r requirements.txt`
    - **Start Command**: `gunicorn ai_screener.wsgi:application`
@@ -153,9 +155,9 @@ Update the environment variables with your actual values:
    TWILIO_PHONE_NUMBER=your-twilio-phone-number
    API_KEY=your-custom-api-key-here
    WHITELISTED_NUMBERS=+1234567890,+1987654321
-   WEBHOOK_BASE_URL=https://your-app-name.onrender.com
+   WEBHOOK_BASE_URL=https://ai-screener-5.onrender.com
    DEBUG=False
-   ALLOWED_HOSTS=your-app-name.onrender.com
+   ALLOWED_HOSTS=ai-screener-5.onrender.com
    ```
 
 5. **Deploy**
@@ -169,8 +171,8 @@ Update the environment variables with your actual values:
    - Run: `python manage.py migrate`
 
 7. **Access Your Application**
-   - Your app will be available at: `https://your-app-name.onrender.com`
-   - Update your `WEBHOOK_BASE_URL` to this URL
+   - Your app will be available at: `https://ai-screener-5.onrender.com`
+   - The `WEBHOOK_BASE_URL` is already configured for this deployment
 
 ### Railway Deployment
 
@@ -204,6 +206,8 @@ Add test phone numbers to `WHITELISTED_NUMBERS` environment variable:
 ```env
 WHITELISTED_NUMBERS=+1234567890,+1987654321
 ```
+
+**Note**: For the live deployment, ensure your test phone numbers are whitelisted in the environment variables.
 
 ## Usage Workflow
 
@@ -261,7 +265,9 @@ ai_screener/
 ├── requirements.txt     # Python dependencies
 ├── env.example          # Environment variables template
 ├── README.md           # This file
-└── AI_Interview_Screener.postman_collection.json
+├── DESIGN_DOCUMENT.md  # System architecture and design
+├── AI_Interview_Screener.postman_collection.json
+└── AI_Interview_Screener.postman_environment.json
 ```
 
 ## Security Features
@@ -295,6 +301,12 @@ Check Django logs for detailed error information:
 ```bash
 python manage.py runserver --verbosity=2
 ```
+
+## Documentation
+
+- **Design Document**: See `DESIGN_DOCUMENT.md` for comprehensive system architecture, data design, AI usage points, and system flow
+- **API Documentation**: Use the provided Postman collection for detailed API examples
+- **Deployment Guide**: Follow the Render.com deployment instructions above
 
 ## Support
 
