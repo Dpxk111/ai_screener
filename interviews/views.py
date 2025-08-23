@@ -51,7 +51,6 @@ class JDToQuestionsView(APIView):
             ).first()
 
             if existing_jd:
-                # Object exists, return its ID and questions
                 print("Existsssssss\n\n\n\n\n")
                 return Response(
                     {
@@ -67,6 +66,7 @@ class JDToQuestionsView(APIView):
             openai_service = OpenAIService()
             try:
                 questions = openai_service.generate_questions_from_jd(title, description)
+                print(questions, "QUESTIONS/n/n/n/n/n/n/n")
             except Exception as e:
                 return Response(
                     {"error": f"Failed to generate questions: {e}"},

@@ -38,6 +38,18 @@ class OpenAIService:
         except Exception as e:
             print(f"OpenAI request error: {e}")
             raise
+    def clean_questions(self, raw_questions):
+        """Cleans a list of questions returned by AI"""
+        cleaned = []
+        for q in raw_questions:
+            # Skip any line that's not a real question
+            if not q or q.lower() == 'json':
+                continue
+            # Remove leading/trailing whitespace and quotes
+            q = q.strip().strip('"').strip("'").strip()
+            if q:
+                cleaned.append(q)
+        return cleaned
 
     def generate_questions_from_jd(self, job_title, job_description):
         """Generate 5-7 interview questions from job description"""
@@ -57,13 +69,24 @@ class OpenAIService:
         Return only the questions as a JSON array of strings, no additional text.
         """
         questions_text = self._make_request(prompt, temperature=0.7, max_tokens=500)
+
+        questions_text = questions_text.strip().strip("```").strip()
+
         try:
             questions = json.loads(questions_text)
         except json.JSONDecodeError:
-            # fallback: split by lines
-            questions = [q.strip().strip('"').strip("'") for q in questions_text.split("\n") if q.strip()]
+            lines = questions_text.split("\n")
+            questions = []
+            for line in lines:
+                line = line.strip().strip('"').strip("'")
+                if line and line not in ["[", "]"]:
+                    if line.endswith(","):
+                        line = line[:-1].strip()
+                    questions.append(line)
+        res = self.clean_questions(questions[:7])
+        print(res, "QUESTIONS/n/n/n/n/n/n/n")
+        return res
 
-        return questions[:7]
 
     def analyze_response(self, question, response_text, resume_context=""):
         """Analyze a candidate's response and provide score and feedback"""
@@ -159,14 +182,22 @@ class TwilioService:
     def initiate_call(self, interview_id, candidate_phone, questions):
         """Initiate a voice call to the candidate"""
         try:
-            # Validate phone number is whitelisted
-            whitelisted_numbers = os.getenv('WHITELISTED_NUMBERS', '["*"]').split(',')
-            if candidate_phone not in whitelisted_numbers:
+            # Parse whitelist from env
+            whitelist_env = os.getenv('WHITELISTED_NUMBERS', '["*"]')
+            try:
+                whitelisted_numbers = json.loads(whitelist_env)
+            except json.JSONDecodeError:
+                whitelisted_numbers = ["*"]
+            print(whitelisted_numbers, "WHITELISTED NUMBERS/n/n/n/n/n/n/n")
+            print(candidate_phone, "CANDIDATE PHONE/n/n/n/n/n/n/n")
+            # Check if number is allowed
+            if '*' not in whitelisted_numbers and candidate_phone not in whitelisted_numbers:
+                print("Phone number is not whitelisted", whitelisted_numbers, candidate_phone)
                 raise ValueError(f"Phone number {candidate_phone} is not whitelisted")
-            
+
             # Create TwiML for the call
             twiml = self._create_interview_twiml(interview_id, questions)
-            
+
             # Make the call
             call = self.client.calls.create(
                 twiml=twiml,
@@ -176,9 +207,9 @@ class TwilioService:
                 status_callback=f"{os.getenv('WEBHOOK_BASE_URL', 'http://localhost:8000')}/api/webhooks/call-status/",
                 status_callback_event=['completed']
             )
-            
+
             return call.sid
-            
+
         except Exception as e:
             print(f"Error initiating call: {e}")
             raise
@@ -193,18 +224,22 @@ class TwilioService:
         
         # Ask each question
         for i, question in enumerate(questions):
+            print(f"Preparing question {i+1}: {question}")
             response.say(f"Question {i+1}: {question}")
             response.pause(length=1)
             response.say("Please provide your answer now.")
             
-            # Record the answer
+            record_url = f"{os.getenv('WEBHOOK_BASE_URL', 'http://localhost:8000')}/api/webhooks/record-response/?interview_id={interview_id}&question_number={i+1}"
+            print(f"Recording action URL: {record_url}")
+            
             response.record(
-                max_length=120,  # 2 minutes max per answer
+                max_length=120,
                 play_beep=True,
-                action=f"{os.getenv('WEBHOOK_BASE_URL', 'http://localhost:8000')}/api/webhooks/record-response/?interview_id={interview_id}&question_number={i+1}",
+                action=record_url,
                 method='POST'
             )
-            
+    
+            print(f"Question {i+1} added with recording")
             response.pause(length=1)
         
         # Conclusion
