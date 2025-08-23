@@ -11,13 +11,14 @@ from django.views import View
 import json
 from datetime import datetime
 
+
 from .models import Candidate, JobDescription, Interview, InterviewResponse, InterviewResult
 from .serializers import (
     CandidateSerializer, JobDescriptionSerializer, InterviewSerializer,
     InterviewResultSerializer, CreateInterviewSerializer, ResumeUploadSerializer,
     JDToQuestionsSerializer, CandidateCreateSerializer
 )
-from .services import OllamaService, TwilioService, ResumeParserService
+from .services import OpenAIService, TwilioService, ResumeParserService
 
 
 class APIKeyPermission(BasePermission):
@@ -33,35 +34,42 @@ class BaseAPIView(APIView):
     permission_classes = [APIKeyPermission]
 
 
-class JDToQuestionsView(BaseAPIView):
-    """Convert job description to interview questions"""
-    
+class JDToQuestionsView(APIView):
+    """Convert job description to interview questions using OpenAI"""
+
     def post(self, request):
         serializer = JDToQuestionsSerializer(data=request.data)
         if serializer.is_valid():
-            title = serializer.validated_data['title']
-            description = serializer.validated_data['description']
-            
-            # Generate questions using Ollama
-            ollama_service = OllamaService()
-            questions = ollama_service.generate_questions_from_jd(title, description)
-            
+            title = serializer.validated_data["title"]
+            description = serializer.validated_data["description"]
+
+            # Generate questions using OpenAI
+            openai_service = OpenAIService()
+            try:
+                questions = openai_service.generate_questions_from_jd(title, description)
+            except Exception as e:
+                return Response(
+                    {"error": f"Failed to generate questions: {e}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
             # Save job description with questions
             jd = JobDescription.objects.create(
                 title=title,
                 description=description,
                 questions=questions
             )
-            
-            return Response({
-                'id': jd.id,
-                'title': jd.title,
-                'questions': jd.questions
-            }, status=status.HTTP_201_CREATED)
-        
+
+            return Response(
+                {
+                    "id": jd.id,
+                    "title": jd.title,
+                    "questions": jd.questions
+                },
+                status=status.HTTP_201_CREATED
+            )
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
 class UploadResumeView(BaseAPIView):
     """Upload and parse resume"""
     

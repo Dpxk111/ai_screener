@@ -10,148 +10,56 @@ from .models import Interview, InterviewResponse, InterviewResult
 import json
 
 
-class OllamaService:
-    """Service for Ollama local API interactions"""
-    
+import openai
+
+# Set your OpenAI API key from environment variable
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+
+class OpenAIService:
+    """Service for interacting with OpenAI API"""
+
     def __init__(self):
-        self.base_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
-        self.model = os.getenv('OLLAMA_MODEL', 'llama2')
-    
+        self.model = os.getenv("OPENAI_MODEL", "gpt-4")
+
     def _make_request(self, prompt, temperature=0.7, max_tokens=500):
-        """Make request to Ollama API"""
+        """Send prompt to OpenAI and return response text"""
         try:
-            url = f"{self.base_url}/api/generate"
-            payload = {
-                "model": self.model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": temperature,
-                    "num_predict": max_tokens
-                }
-            }
-            
-            response = requests.post(url, json=payload, timeout=30)
-            response.raise_for_status()
-            
-            return response.json()['response']
-            
+            response = openai.ChatCompletion.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            return response.choices[0].message.content.strip()
         except Exception as e:
-            print(f"Error making Ollama request: {e}")
+            print(f"OpenAI request error: {e}")
             raise
-    
+
     def generate_questions_from_jd(self, job_title, job_description):
         """Generate 5-7 relevant interview questions from job description"""
         prompt = f"""
         Based on the following job description, generate 5-7 relevant interview questions.
-        
+
         Job Title: {job_title}
         Job Description: {job_description}
-        
+
         Generate questions that assess:
         1. Technical skills and experience
         2. Problem-solving abilities
         3. Communication skills
         4. Cultural fit
         5. Past achievements and challenges
-        
+
         Return only the questions as a JSON array of strings, no additional text.
         """
-        
-        
         questions_text = self._make_request(prompt, temperature=0.7, max_tokens=500)
-        # Try to parse as JSON, fallback to simple list if needed
         try:
             questions = json.loads(questions_text)
         except json.JSONDecodeError:
-            # Fallback: split by newlines and clean up
-            questions = [q.strip().strip('"').strip("'") for q in questions_text.split('\n') if q.strip()]
-        
-        return questions[:7]  # Ensure max 7 questions
-            
-        
-    
-    def analyze_response(self, question, response_text, resume_context=""):
-        """Analyze a candidate's response and provide score and feedback"""
-        prompt = f"""
-        Analyze this interview response and provide a score (0-10) and feedback.
-        
-        Question: {question}
-        Response: {response_text}
-        Resume Context: {resume_context}
-        
-        Evaluate based on:
-        - Relevance to the question
-        - Clarity and communication
-        - Specificity and examples
-        - Professionalism
-        
-        Return as JSON: {{"score": float, "feedback": "string"}}
-        """
-        
-        try:
-            result_text = self._make_request(prompt, temperature=0.3, max_tokens=300)
-            try:
-                result = json.loads(result_text)
-                return result.get('score', 5.0), result.get('feedback', 'No specific feedback available.')
-            except json.JSONDecodeError:
-                return 5.0, "Analysis completed but feedback format was unexpected."
-                
-        except Exception as e:
-            print(f"Error analyzing response: {e}")
-            return 5.0, "Unable to analyze response due to technical issues."
-    
-    def generate_final_recommendation(self, interview_responses, resume_context=""):
-        """Generate final interview recommendation and overall score"""
-        responses_summary = "\n".join([
-            f"Q{i+1}: {resp.question}\nA{i+1}: {resp.transcript}\nScore: {resp.score}\n"
-            for i, resp in enumerate(interview_responses)
-        ])
-        
-        prompt = f"""
-        Based on these interview responses, provide a comprehensive evaluation:
-        
-        Resume Context: {resume_context}
-        
-        Interview Responses:
-        {responses_summary}
-        
-        Provide:
-        1. Overall score (0-10)
-        2. Recommendation (hire/consider/reject with reasoning)
-        3. Key strengths (list)
-        4. Areas for improvement (list)
-        
-        Return as JSON:
-        {{
-            "overall_score": float,
-            "recommendation": "string",
-            "strengths": ["string"],
-            "areas_for_improvement": ["string"]
-        }}
-        """
-        
-        try:
-            result_text = self._make_request(prompt, temperature=0.3, max_tokens=500)
-            try:
-                result = json.loads(result_text)
-                return result
-            except json.JSONDecodeError:
-                return {
-                    "overall_score": 5.0,
-                    "recommendation": "Consider - Analysis completed but recommendation format was unexpected.",
-                    "strengths": ["Analysis completed"],
-                    "areas_for_improvement": ["Unable to provide specific feedback"]
-                }
-                
-        except Exception as e:
-            print(f"Error generating recommendation: {e}")
-            return {
-                "overall_score": 5.0,
-                "recommendation": "Consider - Unable to generate recommendation due to technical issues.",
-                "strengths": ["Interview completed"],
-                "areas_for_improvement": ["Technical analysis unavailable"]
-            }
+            questions = [q.strip().strip('"').strip("'") for q in questions_text.split("\n") if q.strip()]
+
+        return questions[:7]
 
 
 class TwilioService:
