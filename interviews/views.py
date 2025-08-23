@@ -205,6 +205,17 @@ class ListJobDescriptionsView(BaseAPIView):
         return Response(JobDescriptionSerializer(jds, many=True).data)
 
 
+class HealthCheckView(APIView):
+    """Health check endpoint"""
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        return Response({
+            'status': 'healthy',
+            'message': 'AI Interview Screener API is running'
+        })
+
+
 # Webhook views for Twilio
 @method_decorator(csrf_exempt, name='dispatch')
 class TwilioWebhookView(View):

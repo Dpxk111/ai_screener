@@ -2,6 +2,9 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Health check
+    path('health/', views.HealthCheckView.as_view(), name='health_check'),
+    
     # Core API endpoints
     path('jd-to-questions/', views.JDToQuestionsView.as_view(), name='jd_to_questions'),
     path('upload-resume/', views.UploadResumeView.as_view(), name='upload_resume'),
@@ -13,7 +16,7 @@ urlpatterns = [
     path('interviews/<uuid:interview_id>/results/', views.GetResultsView.as_view(), name='get_results'),
     path('interviews/list/', views.ListInterviewsView.as_view(), name='list_interviews'),
     path('job-descriptions/list/', views.ListJobDescriptionsView.as_view(), name='list_job_descriptions'),
-    
+
     # Twilio webhooks
     path('webhooks/call-status/', views.TwilioWebhookView.as_view(), {'webhook_type': 'call-status'}, name='call_status_webhook'),
     path('webhooks/record-response/', views.TwilioWebhookView.as_view(), {'webhook_type': 'record-response'}, name='record_response_webhook'),
