@@ -1,5 +1,5 @@
 import os
-import openai
+import requests
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 import PyPDF2
@@ -10,11 +10,35 @@ from .models import Interview, InterviewResponse, InterviewResult
 import json
 
 
-class OpenAIService:
-    """Service for OpenAI API interactions"""
+class OllamaService:
+    """Service for Ollama local API interactions"""
     
     def __init__(self):
-        self.client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        self.base_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+        self.model = os.getenv('OLLAMA_MODEL', 'llama2')
+    
+    def _make_request(self, prompt, temperature=0.7, max_tokens=500):
+        """Make request to Ollama API"""
+        try:
+            url = f"{self.base_url}/api/generate"
+            payload = {
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens
+                }
+            }
+            
+            response = requests.post(url, json=payload, timeout=30)
+            response.raise_for_status()
+            
+            return response.json()['response']
+            
+        except Exception as e:
+            print(f"Error making Ollama request: {e}")
+            raise
     
     def generate_questions_from_jd(self, job_title, job_description):
         """Generate 5-7 relevant interview questions from job description"""
@@ -35,14 +59,7 @@ class OpenAIService:
         """
         
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=500
-            )
-            
-            questions_text = response.choices[0].message.content.strip()
+            questions_text = self._make_request(prompt, temperature=0.7, max_tokens=500)
             # Try to parse as JSON, fallback to simple list if needed
             try:
                 questions = json.loads(questions_text)
@@ -82,14 +99,7 @@ class OpenAIService:
         """
         
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=300
-            )
-            
-            result_text = response.choices[0].message.content.strip()
+            result_text = self._make_request(prompt, temperature=0.3, max_tokens=300)
             try:
                 result = json.loads(result_text)
                 return result.get('score', 5.0), result.get('feedback', 'No specific feedback available.')
@@ -131,14 +141,7 @@ class OpenAIService:
         """
         
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=500
-            )
-            
-            result_text = response.choices[0].message.content.strip()
+            result_text = self._make_request(prompt, temperature=0.3, max_tokens=500)
             try:
                 result = json.loads(result_text)
                 return result

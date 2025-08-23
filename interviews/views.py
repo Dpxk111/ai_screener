@@ -17,7 +17,7 @@ from .serializers import (
     InterviewResultSerializer, CreateInterviewSerializer, ResumeUploadSerializer,
     JDToQuestionsSerializer, CandidateCreateSerializer
 )
-from .services import OpenAIService, TwilioService, ResumeParserService
+from .services import OllamaService, TwilioService, ResumeParserService
 
 
 class APIKeyPermission(BasePermission):
@@ -42,9 +42,9 @@ class JDToQuestionsView(BaseAPIView):
             title = serializer.validated_data['title']
             description = serializer.validated_data['description']
             
-            # Generate questions using OpenAI
-            openai_service = OpenAIService()
-            questions = openai_service.generate_questions_from_jd(title, description)
+            # Generate questions using Ollama
+            ollama_service = OllamaService()
+            questions = ollama_service.generate_questions_from_jd(title, description)
             
             # Save job description with questions
             jd = JobDescription.objects.create(
@@ -290,8 +290,8 @@ class TwilioWebhookView(View):
             response.save()
             
             # Analyze response
-            openai_service = OpenAIService()
-            score, feedback = openai_service.analyze_response(
+            ollama_service = OllamaService()
+            score, feedback = ollama_service.analyze_response(
                 question, 
                 response.transcript,
                 interview.candidate.resume_text
@@ -311,8 +311,8 @@ class TwilioWebhookView(View):
         responses = InterviewResponse.objects.filter(interview=interview).order_by('question_number')
         
         if responses.exists():
-            openai_service = OpenAIService()
-            result_data = openai_service.generate_final_recommendation(
+            ollama_service = OllamaService()
+            result_data = ollama_service.generate_final_recommendation(
                 responses, 
                 interview.candidate.resume_text
             )

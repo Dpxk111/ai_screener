@@ -14,7 +14,7 @@ A complete AI-powered interview screening system that automates the interview pr
 ## Tech Stack
 
 - **Backend**: Django 5.2.5 + Django REST Framework
-- **AI**: OpenAI GPT-3.5-turbo for question generation and response analysis
+- **AI**: Ollama local models for question generation and response analysis
 - **Voice**: Twilio for automated voice calls and recording
 - **File Processing**: PyPDF2 and python-docx for resume parsing
 - **Deployment**: Gunicorn + Whitenoise for production
@@ -52,8 +52,9 @@ SECRET_KEY=your-django-secret-key-here
 DEBUG=False
 ALLOWED_HOSTS=your-domain.com,localhost,127.0.0.1
 
-# API Keys
-OPENAI_API_KEY=your-openai-api-key-here
+# Ollama Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama2
 TWILIO_ACCOUNT_SID=your-twilio-account-sid-here
 TWILIO_AUTH_TOKEN=your-twilio-auth-token-here
 TWILIO_PHONE_NUMBER=+1234567890
@@ -279,9 +280,9 @@ ai_screener/
    - Verify Twilio credentials
    - Ensure webhook URLs are accessible
 
-2. **OpenAI API Errors**
-   - Verify API key is valid
-   - Check API quota/limits
+2. **Ollama API Errors**
+   - Verify Ollama is running locally
+   - Check model is available
    - Ensure proper JSON formatting
 
 3. **File Upload Issues**

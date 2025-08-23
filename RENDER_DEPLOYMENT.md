@@ -54,8 +54,9 @@ SECRET_KEY=your-django-secret-key-here
 DEBUG=False
 ALLOWED_HOSTS=your-app-name.onrender.com
 
-# API Keys
-OPENAI_API_KEY=your-openai-api-key-here
+# Ollama Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama2
 TWILIO_ACCOUNT_SID=your-twilio-account-sid-here
 TWILIO_AUTH_TOKEN=your-twilio-auth-token-here
 TWILIO_PHONE_NUMBER=+1234567890
