@@ -279,18 +279,26 @@ class TranscriptionService:
     
     def __init__(self):
         self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.twilio_client = Client(
+            os.getenv('TWILIO_ACCOUNT_SID'),
+            os.getenv('TWILIO_AUTH_TOKEN')
+        )
     
     def transcribe_audio(self, audio_url):
         """Transcribe audio from URL using OpenAI Whisper"""
         try:
-            # Download audio file from Twilio URL
-            response = requests.get(audio_url)
-            if response.status_code != 200:
-                print(f"Failed to download audio: {response.status_code}")
-                return "Unable to transcribe audio - download failed."
+            # Extract recording SID from Twilio URL
+            # URL format: https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Recordings/{RecordingSid}
+            recording_sid = audio_url.split('/')[-1]
             
-            # Save temporarily and transcribe
-            audio_data = response.content
+            # Get the recording using Twilio client (authenticated)
+            recording = self.twilio_client.recordings(recording_sid).fetch()
+            
+            # Download the audio file with proper authentication
+            audio_data = requests.get(
+                recording.media_location,
+                auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN'))
+            ).content
             
             # Use OpenAI Whisper API for transcription
             transcript = self.openai_client.audio.transcriptions.create(
