@@ -58,27 +58,18 @@ class OllamaService:
         Return only the questions as a JSON array of strings, no additional text.
         """
         
+        
+        questions_text = self._make_request(prompt, temperature=0.7, max_tokens=500)
+        # Try to parse as JSON, fallback to simple list if needed
         try:
-            questions_text = self._make_request(prompt, temperature=0.7, max_tokens=500)
-            # Try to parse as JSON, fallback to simple list if needed
-            try:
-                questions = json.loads(questions_text)
-            except json.JSONDecodeError:
-                # Fallback: split by newlines and clean up
-                questions = [q.strip().strip('"').strip("'") for q in questions_text.split('\n') if q.strip()]
+            questions = json.loads(questions_text)
+        except json.JSONDecodeError:
+            # Fallback: split by newlines and clean up
+            questions = [q.strip().strip('"').strip("'") for q in questions_text.split('\n') if q.strip()]
+        
+        return questions[:7]  # Ensure max 7 questions
             
-            return questions[:7]  # Ensure max 7 questions
-            
-        except Exception as e:
-            print(f"Error generating questions: {e}")
-            # Fallback questions
-            return [
-                "Can you tell me about your relevant experience?",
-                "What are your key strengths?",
-                "Describe a challenging project you worked on.",
-                "How do you handle tight deadlines?",
-                "What are your career goals?"
-            ]
+        
     
     def analyze_response(self, question, response_text, resume_context=""):
         """Analyze a candidate's response and provide score and feedback"""
