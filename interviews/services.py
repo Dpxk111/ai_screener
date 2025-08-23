@@ -214,38 +214,24 @@ class TwilioService:
             print(f"Error initiating call: {e}")
             raise
     
-    def _create_interview_twiml(self, interview_id, questions):
-        """Create TwiML for the interview call"""
+    def _create_interview_twiml(self, interview_id, question_number, questions):
         response = VoiceResponse()
-        
-        # Introduction
-        response.say("Hello! Thank you for joining this automated interview. I'll be asking you several questions. Please speak clearly and take your time to answer each question thoroughly.")
-        response.pause(length=1)
-        
-        # Ask each question
-        for i, question in enumerate(questions):
-            print(f"Preparing question {i+1}: {question}")
-            response.say(f"Question {i+1}: {question}")
+
+        if question_number <= len(questions):
+            question = questions[question_number - 1]
+            response.say(f"Question {question_number}: {question}")
             response.pause(length=1)
             response.say("Please provide your answer now.")
-            
-            record_url = f"{os.getenv('WEBHOOK_BASE_URL', 'http://localhost:8000')}/api/webhooks/record-response/?interview_id={interview_id}&question_number={i+1}"
-            print(f"Recording action URL: {record_url}")
-            
             response.record(
                 max_length=120,
                 play_beep=True,
-                action=record_url,
+                action=f"{os.getenv('WEBHOOK_BASE_URL')}/api/webhooks/record-response/?interview_id={interview_id}&question_number={question_number}",
                 method='POST'
             )
-    
-            print(f"Question {i+1} added with recording")
-            response.pause(length=1)
-        
-        # Conclusion
-        response.say("Thank you for completing the interview. We will review your responses and get back to you soon. Goodbye!")
-        response.hangup()
-        
+        else:
+            response.say("Thank you for completing the interview. We will review your responses and get back to you soon. Goodbye!")
+            response.hangup()
+
         return str(response)
 
 

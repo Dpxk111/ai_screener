@@ -9,7 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.views import View
 import json
-from datetime import datetime
+from django.utils import timezone
 from django.db.models import Q
 
 
