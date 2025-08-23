@@ -17,7 +17,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
 class OpenAIService:
-    """Service for interacting with OpenAI API"""
+    """Service for interacting with OpenAI API (updated for openai>=1.0.0)"""
 
     def __init__(self):
         self.model = os.getenv("OPENAI_MODEL", "gpt-4")
@@ -25,7 +25,7 @@ class OpenAIService:
     def _make_request(self, prompt, temperature=0.7, max_tokens=500):
         """Send prompt to OpenAI and return response text"""
         try:
-            response = openai.ChatCompletion.create(
+            response = openai.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature,
@@ -60,8 +60,6 @@ class OpenAIService:
             questions = [q.strip().strip('"').strip("'") for q in questions_text.split("\n") if q.strip()]
 
         return questions[:7]
-
-
 class TwilioService:
     """Service for Twilio voice call integration"""
     
