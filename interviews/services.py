@@ -342,172 +342,115 @@ class OpenAIService:
 
 class TwilioService:
     """Service for Twilio voice call integration"""
-    
+
     def __init__(self):
-        print(f"[DEBUG] TwilioService: Initializing with Account SID: {os.getenv('TWILIO_ACCOUNT_SID', 'NOT_SET')[:10]}...")
-        print(f"[DEBUG] TwilioService: Phone number: {os.getenv('TWILIO_PHONE_NUMBER', 'NOT_SET')}")
-        print(f"[DEBUG] TwilioService: Auth token: {'SET' if os.getenv('TWILIO_AUTH_TOKEN') else 'NOT_SET'}")
-        
-        self.client = Client(
-            os.getenv('TWILIO_ACCOUNT_SID'),
-            os.getenv('TWILIO_AUTH_TOKEN')
-        )
-        self.phone_number = os.getenv('TWILIO_PHONE_NUMBER')
-        
-        # Validate configuration
-        if not os.getenv('TWILIO_ACCOUNT_SID'):
-            print("[ERROR] TwilioService: TWILIO_ACCOUNT_SID not set")
-        if not os.getenv('TWILIO_AUTH_TOKEN'):
-            print("[ERROR] TwilioService: TWILIO_AUTH_TOKEN not set")
+        self.account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+        self.auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        self.phone_number = os.getenv("TWILIO_PHONE_NUMBER")
+
+        logger.debug(f"[TwilioService] Initializing with Account SID: {self.account_sid[:10] if self.account_sid else 'NOT_SET'}...")
+        logger.debug(f"[TwilioService] Phone number: {self.phone_number}")
+        logger.debug(f"[TwilioService] Auth token: {'SET' if self.auth_token else 'NOT_SET'}")
+
+        if not self.account_sid:
+            logger.error("[TwilioService] TWILIO_ACCOUNT_SID not set")
+        if not self.auth_token:
+            logger.error("[TwilioService] TWILIO_AUTH_TOKEN not set")
         if not self.phone_number:
-            print("[ERROR] TwilioService: TWILIO_PHONE_NUMBER not set")
-    
+            logger.error("[TwilioService] TWILIO_PHONE_NUMBER not set")
+
+        self.client = Client(self.account_sid, self.auth_token)
+
     def initiate_call(self, interview_id, candidate_phone, questions):
         """Initiate a voice call to the candidate"""
         try:
-            print(f"[DEBUG] TwilioService: Starting call initiation for interview {interview_id}")
-            print(f"[DEBUG] TwilioService: Candidate phone: {candidate_phone}")
-            print(f"[DEBUG] TwilioService: Number of questions: {len(questions)}")
-            
-            twilio_logger.info(f"TwilioService: Initiating call for interview {interview_id} to {candidate_phone}")
-            
+            logger.debug(f"[TwilioService] Starting call initiation for interview {interview_id}")
+            logger.debug(f"[TwilioService] Candidate phone: {candidate_phone}")
+            logger.debug(f"[TwilioService] Number of questions: {len(questions)}")
+
             # Validate inputs
             if not interview_id:
-                print("[ERROR] TwilioService: interview_id is empty")
                 raise ValueError("interview_id cannot be empty")
             if not candidate_phone:
-                print("[ERROR] TwilioService: candidate_phone is empty")
                 raise ValueError("candidate_phone cannot be empty")
-            if not questions or len(questions) == 0:
-                print("[ERROR] TwilioService: questions list is empty")
+            if not questions:
                 raise ValueError("questions list cannot be empty")
-            
+
             # Parse whitelist from env
-            whitelist_env = os.getenv('WHITELISTED_NUMBERS', '["*"]')
-            print(f"[DEBUG] TwilioService: Whitelist env: {whitelist_env}")
+            whitelist_env = os.getenv("WHITELISTED_NUMBERS", '["*"]')
             try:
                 whitelisted_numbers = json.loads(whitelist_env)
-                print(f"[DEBUG] TwilioService: Parsed whitelist: {whitelisted_numbers}")
-                twilio_logger.info(f"TwilioService: Loaded whitelist with {len(whitelisted_numbers)} numbers")
-            except json.JSONDecodeError as e:
-                print(f"[WARNING] TwilioService: Failed to parse whitelist: {e}")
-                twilio_logger.warning(f"TwilioService: Failed to parse whitelist, using default")
+            except json.JSONDecodeError:
+                logger.warning("[TwilioService] Failed to parse whitelist, using default")
                 whitelisted_numbers = ["*"]
 
-            # Check if number is allowed
-            if '*' not in whitelisted_numbers and candidate_phone not in whitelisted_numbers:
-                print(f"[ERROR] TwilioService: Phone number {candidate_phone} is not whitelisted")
-                twilio_logger.error(f"TwilioService: Phone number {candidate_phone} is not whitelisted")
+            if "*" not in whitelisted_numbers and candidate_phone not in whitelisted_numbers:
+                logger.error(f"[TwilioService] Phone number {candidate_phone} is not whitelisted")
                 raise ValueError(f"Phone number {candidate_phone} is not whitelisted")
 
-            print(f"[DEBUG] TwilioService: Generating TwiML for interview {interview_id}")
+            # Generate TwiML
             twiml = self._create_interview_twiml(interview_id, question_number=1, questions=questions)
-            print(f"[DEBUG] TwilioService: Generated TwiML length: {len(twiml)}")
-            print(f"[DEBUG] TwilioService: TwiML preview: {twiml[:200]}...")
-            twilio_logger.info(f"TwilioService: Generated TwiML for interview {interview_id}")
+            logger.debug(f"[TwilioService] Generated TwiML preview: {twiml[:200]}...")
 
-            # Get webhook URL - IMPORTANT: For local development, you need a public URL
-            webhook_base_url = os.getenv('WEBHOOK_BASE_URL')
-            if not webhook_base_url:
-                print("[WARNING] TwilioService: WEBHOOK_BASE_URL not set, using localhost (this won't work for Twilio)")
-                webhook_base_url = 'http://localhost:8000'
-            
-            # Ensure the URL ends with a slash if needed
-            if not webhook_base_url.endswith('/'):
-                webhook_base_url += '/'
-            
+            # Get webhook base URL
+            webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://localhost:8000")
+            if not webhook_base_url.endswith("/"):
+                webhook_base_url += "/"
+
             status_callback_url = f"{webhook_base_url}api/webhooks/call-status/"
-            print(f"[DEBUG] TwilioService: Webhook base URL: {webhook_base_url}")
-            print(f"[DEBUG] TwilioService: Status callback URL: {status_callback_url}")
-            
-            # Check if webhook URL is accessible (for debugging)
-            if webhook_base_url.startswith('http://localhost'):
-                print("[WARNING] TwilioService: Using localhost URL - Twilio cannot reach this!")
-                print("[WARNING] TwilioService: You need to use ngrok or similar to expose localhost")
+
+            if "localhost" in webhook_base_url:
+                logger.warning("[TwilioService] Using localhost URL - Twilio cannot reach this! Use ngrok or deploy.")
 
             # Make the call
-            print(f"[DEBUG] TwilioService: Creating call with Twilio API...")
-            call_params = {
-                'twiml': twiml,
-                'to': candidate_phone,
-                'from_': self.phone_number,
-                'record': True,
-                'status_callback': status_callback_url,
-                'status_callback_event': ['completed']
-            }
-            print(f"[DEBUG] TwilioService: Call parameters: {call_params}")
-            
-            call = self.client.calls.create(**call_params)
+            call = self.client.calls.create(
+                twiml=twiml,
+                to=candidate_phone,
+                from_=self.phone_number,
+                record=True,
+                status_callback=status_callback_url,
+                status_callback_event=["completed"],
+            )
 
-            print(f"[DEBUG] TwilioService: Call created successfully with SID: {call.sid}")
-            twilio_logger.info(f"TwilioService: Successfully initiated call with SID: {call.sid}")
+            logger.info(f"[TwilioService] Call initiated successfully, SID={call.sid}")
             return call.sid
 
         except Exception as e:
-            print(f"[ERROR] TwilioService: Error initiating call: {str(e)}")
-            print(f"[ERROR] TwilioService: Exception type: {type(e).__name__}")
-            import traceback
-            print(f"[ERROR] TwilioService: Traceback: {traceback.format_exc()}")
-            twilio_logger.error(f"TwilioService: Error initiating call: {str(e)}", exc_info=True)
+            logger.error(f"[TwilioService] Error initiating call: {e}", exc_info=True)
             raise
-        
+
     def _create_interview_twiml(self, interview_id, question_number, questions):
-        print(f"[DEBUG] TwilioService: Creating TwiML for interview {interview_id}, question {question_number}")
-        print(f"[DEBUG] TwilioService: Total questions: {len(questions)}")
-        
-        try:
-            response = VoiceResponse()
+        """Generate TwiML to ask the first question and record the answer"""
+        response = VoiceResponse()
 
-            # Only ask the first question (question_number should always be 1)
-            if question_number == 1 and len(questions) > 0:
-                question = questions[0]  # Always use the first question
-                print(f"[DEBUG] TwilioService: Question text: {question}")
-                
-                # Add welcome message
-                response.say("Hello! Welcome to your automated interview. Let's begin.")
-                response.pause(length=1)
-                
-                response.say(f"Question: {question}")
-                response.pause(length=1)
-                response.say("Please provide your answer now.")
-                
-                # Get webhook URL for recording
-                webhook_base_url = os.getenv('WEBHOOK_BASE_URL', 'http://localhost:8000')
-                # Ensure the URL ends with a slash if needed
-                if not webhook_base_url.endswith('/'):
-                    webhook_base_url += '/'
-                record_action_url = f"{webhook_base_url}api/webhooks/record-response/?interview_id={interview_id}&question_number=1"
-                print(f"[DEBUG] TwilioService: Record action URL: {record_action_url}")
-                
-                response.record(
-                    max_length=120,
-                    play_beep=True,
-                    action=record_action_url,
-                    method='POST',
-                    timeout=10,
-                    transcribe=False
-                )
-            else:
-                print(f"[DEBUG] TwilioService: No question available or not first question, ending call")
-                response.say("Thank you for completing the interview. We will review your response and get back to you soon. Goodbye!")
-                response.hangup()
+        if question_number == 1 and questions:
+            question_text = questions[0]
+            response.say("Hello! Welcome to your automated interview. Let's begin.")
+            response.pause(length=1)
+            response.say(f"Question: {question_text}")
+            response.pause(length=1)
+            response.say("Please provide your answer now.")
 
-            twiml_str = str(response)
-            print(f"[DEBUG] TwilioService: Generated TwiML: {twiml_str}")
-            return twiml_str
-            
-        except Exception as e:
-            print(f"[ERROR] TwilioService: Error creating TwiML: {str(e)}")
-            import traceback
-            print(f"[ERROR] TwilioService: TwiML creation traceback: {traceback.format_exc()}")
-            
-            # Fallback TwiML
-            fallback_response = VoiceResponse()
-            fallback_response.say("We're experiencing technical difficulties. Please try again later.")
-            fallback_response.hangup()
-            return str(fallback_response)
+            # Webhook for recording
+            webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://localhost:8000")
+            if not webhook_base_url.endswith("/"):
+                webhook_base_url += "/"
 
+            record_action_url = f"{webhook_base_url}api/webhooks/record-response/?interview_id={interview_id}&question_id=1"
 
+            response.record(
+                max_length=120,
+                play_beep=True,
+                action=record_action_url,
+                method="POST",
+                timeout=10,
+                transcribe=False,
+            )
+        else:
+            response.say("Thank you for completing the interview. Goodbye!")
+            response.hangup()
+
+        return str(response)
 class ResumeParserService:
     """Service for parsing resume files"""
     
