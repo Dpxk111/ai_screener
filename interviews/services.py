@@ -31,22 +31,37 @@ class OpenAIService:
     def __init__(self):
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # Or gpt-4
 
-    def _make_request(self, prompt, temperature=0.7, max_tokens=500):
-        """Send prompt to OpenAI and return response text"""
-        try:
-            openai_logger.info(f"OpenAIService: Making request to OpenAI with model {self.model}")
-            response = openai.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
-                max_tokens=max_tokens
-            )
-            result = response.choices[0].message.content.strip()
-            openai_logger.info(f"OpenAIService: Successfully received response from OpenAI")
-            return result
-        except Exception as e:
-            openai_logger.error(f"OpenAIService: OpenAI request error: {str(e)}", exc_info=True)
-            raise
+    def _make_request(self, prompt, temperature=0.7, max_tokens=500, max_retries=3):
+        """Send prompt to OpenAI and return response text with retry logic"""
+        import time
+        
+        for attempt in range(max_retries):
+            try:
+                openai_logger.info(f"OpenAIService: Making request to OpenAI with model {self.model} (attempt {attempt + 1}/{max_retries})")
+                response = openai.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+                result = response.choices[0].message.content.strip()
+                openai_logger.info(f"OpenAIService: Successfully received response from OpenAI")
+                return result
+            except Exception as e:
+                error_msg = str(e)
+                openai_logger.warning(f"OpenAIService: OpenAI request error (attempt {attempt + 1}/{max_retries}): {error_msg}")
+                
+                # Check if it's a retryable error
+                if "503" in error_msg or "429" in error_msg or "timeout" in error_msg.lower():
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 2  # Exponential backoff: 2s, 4s, 6s
+                        openai_logger.info(f"OpenAIService: Retrying in {wait_time} seconds...")
+                        time.sleep(wait_time)
+                        continue
+                
+                # If it's the last attempt or non-retryable error, log and raise
+                openai_logger.error(f"OpenAIService: Final OpenAI request error after {max_retries} attempts: {error_msg}", exc_info=True)
+                raise
     def clean_questions(self, raw_questions):
         """Cleans a list of questions returned by AI"""
         cleaned = []
@@ -101,7 +116,16 @@ class OpenAIService:
             return res
         except Exception as e:
             openai_logger.error(f"OpenAIService: Error generating questions for {job_title}: {str(e)}", exc_info=True)
-            raise
+            # Fallback to default questions if OpenAI fails
+            openai_logger.warning(f"OpenAIService: Using fallback questions for {job_title}")
+            fallback_questions = [
+                "Can you tell me about your relevant experience for this role?",
+                "What are your key strengths that would make you successful in this position?",
+                "Describe a challenging project you worked on and how you handled it.",
+                "What interests you most about this opportunity?",
+                "Where do you see yourself professionally in the next few years?"
+            ]
+            return self.clean_questions(fallback_questions[:1])
 
 
     def analyze_response(self, question, response_text, resume_context=""):
@@ -310,15 +334,16 @@ class TwilioService:
         try:
             response = VoiceResponse()
 
-            if question_number <= len(questions):
-                question = questions[question_number - 1]
+            # Only ask the first question (question_number should always be 1)
+            if question_number == 1 and len(questions) > 0:
+                question = questions[0]  # Always use the first question
                 print(f"[DEBUG] TwilioService: Question text: {question}")
                 
                 # Add welcome message
                 response.say("Hello! Welcome to your automated interview. Let's begin.")
                 response.pause(length=1)
                 
-                response.say(f"Question {question_number}: {question}")
+                response.say(f"Question: {question}")
                 response.pause(length=1)
                 response.say("Please provide your answer now.")
                 
@@ -327,7 +352,7 @@ class TwilioService:
                 # Ensure the URL ends with a slash if needed
                 if not webhook_base_url.endswith('/'):
                     webhook_base_url += '/'
-                record_action_url = f"{webhook_base_url}api/webhooks/record-response/?interview_id={interview_id}&question_number={question_number}"
+                record_action_url = f"{webhook_base_url}api/webhooks/record-response/?interview_id={interview_id}&question_number=1"
                 print(f"[DEBUG] TwilioService: Record action URL: {record_action_url}")
                 
                 response.record(
@@ -339,8 +364,8 @@ class TwilioService:
                     transcribe=False
                 )
             else:
-                print(f"[DEBUG] TwilioService: No more questions, ending call")
-                response.say("Thank you for completing the interview. We will review your responses and get back to you soon. Goodbye!")
+                print(f"[DEBUG] TwilioService: No question available or not first question, ending call")
+                response.say("Thank you for completing the interview. We will review your response and get back to you soon. Goodbye!")
                 response.hangup()
 
             twiml_str = str(response)
