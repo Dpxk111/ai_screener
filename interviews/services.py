@@ -692,12 +692,14 @@ class TranscriptionService:
             # Get the media URL
             media_url = None
             if hasattr(recording, 'uri') and recording.uri:
-                media_url = f"https://api.twilio.com{recording.uri}.mp3"
+                # remove ".json" if it exists
+                uri = recording.uri.replace('.json', '')
+                media_url = f"https://api.twilio.com{uri}.mp3"
                 print(f"[DEBUG] TranscriptionService: Using URI-based media URL: {media_url}")
             elif hasattr(recording, 'media_location') and recording.media_location:
                 media_url = recording.media_location
                 print(f"[DEBUG] TranscriptionService: Using media_location-based URL: {media_url}")
-            
+
             if not media_url:
                 print(f"[ERROR] TranscriptionService: No media URL found for recording")
                 print(f"[DEBUG] TranscriptionService: Recording attributes: {dir(recording)}")
