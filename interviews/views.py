@@ -1,4 +1,5 @@
 import os
+import logging
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.views import APIView
@@ -13,7 +14,8 @@ from datetime import datetime
 from django.utils import timezone
 from django.db.models import Q
 
-
+# Set up logger for this module
+logger = logging.getLogger('interviews')
 
 from .models import Candidate, JobDescription, Interview, InterviewResponse, InterviewResult
 from .serializers import (
@@ -41,10 +43,12 @@ class JDToQuestionsView(APIView):
     """Convert job description to interview questions using OpenAI"""
 
     def post(self, request):
+        logger.info("JDToQuestionsView: Processing job description to questions request")
         serializer = JDToQuestionsSerializer(data=request.data)
         if serializer.is_valid():
             title = serializer.validated_data["title"]
             description = serializer.validated_data["description"]
+            logger.info(f"JDToQuestionsView: Processing job title: {title}")
 
             # Check if JD already exists (duplicate)
             existing_jd = JobDescription.objects.filter(
@@ -52,7 +56,7 @@ class JDToQuestionsView(APIView):
             ).first()
 
             if existing_jd:
-                print("Existsssssss\n\n\n\n\n")
+                logger.info(f"JDToQuestionsView: Found existing job description with ID: {existing_jd.id}")
                 return Response(
                     {
                         "id": existing_jd.id,
@@ -64,22 +68,31 @@ class JDToQuestionsView(APIView):
                 )
 
             # Object does not exist, create new
+            logger.info("JDToQuestionsView: Generating new questions from job description")
             openai_service = OpenAIService()
             try:
                 questions = openai_service.generate_questions_from_jd(title, description)
-                print(questions, "QUESTIONS/n/n/n/n/n/n/n")
+                logger.info(f"JDToQuestionsView: Generated {len(questions)} questions successfully")
             except Exception as e:
+                logger.error(f"JDToQuestionsView: Failed to generate questions: {str(e)}", exc_info=True)
                 return Response(
                     {"error": f"Failed to generate questions: {e}"},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
 
-            jd = JobDescription.objects.create(
-                title=title,
-                description=description,
-                questions=questions
-            )
-            print(JobDescription.objects.all(), "JOB DESCRIPTION CREATED/n/n/n/n/n/n/n")
+            try:
+                jd = JobDescription.objects.create(
+                    title=title,
+                    description=description,
+                    questions=questions
+                )
+                logger.info(f"JDToQuestionsView: Created job description with ID: {jd.id}")
+            except Exception as e:
+                logger.error(f"JDToQuestionsView: Failed to create job description: {str(e)}", exc_info=True)
+                return Response(
+                    {"error": f"Failed to save job description: {e}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
             return Response(
                 {
@@ -91,24 +104,35 @@ class JDToQuestionsView(APIView):
                 status=status.HTTP_201_CREATED
             )
 
+        logger.warning(f"JDToQuestionsView: Invalid serializer data: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 class UploadResumeView(BaseAPIView):
     """Upload and parse resume"""
     
     def post(self, request):
+        logger.info("UploadResumeView: Processing resume upload request")
         serializer = ResumeUploadSerializer(data=request.data)
         if serializer.is_valid():
             resume_file = serializer.validated_data['resume']
+            logger.info(f"UploadResumeView: Processing resume file: {resume_file.name}")
             
             # Parse resume
             parser_service = ResumeParserService()
-            resume_text = parser_service.parse_resume(resume_file)
+            try:
+                resume_text = parser_service.parse_resume(resume_file)
+                logger.info(f"UploadResumeView: Successfully parsed resume, text length: {len(resume_text)}")
+            except Exception as e:
+                logger.error(f"UploadResumeView: Failed to parse resume: {str(e)}", exc_info=True)
+                return Response({
+                    'error': f'Failed to parse resume: {str(e)}'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
             return Response({
                 'resume_text': resume_text,
                 'filename': resume_file.name
             }, status=status.HTTP_200_OK)
         
+        logger.warning(f"UploadResumeView: Invalid serializer data: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -116,18 +140,33 @@ class CreateCandidateView(BaseAPIView):
     """Create a new candidate"""
     
     def post(self, request):
+        logger.info("CreateCandidateView: Processing candidate creation request")
         serializer = CandidateCreateSerializer(data=request.data)
         if serializer.is_valid():
-            candidate = serializer.save()
-            
-            # Parse resume if provided
-            if candidate.resume:
-                parser_service = ResumeParserService()
-                candidate.resume_text = parser_service.parse_resume(candidate.resume)
-                candidate.save()
-            
-            return Response(CandidateSerializer(candidate).data, status=status.HTTP_201_CREATED)
+            try:
+                candidate = serializer.save()
+                logger.info(f"CreateCandidateView: Created candidate with ID: {candidate.id}")
+                
+                # Parse resume if provided
+                if candidate.resume:
+                    logger.info(f"CreateCandidateView: Parsing resume for candidate {candidate.id}")
+                    parser_service = ResumeParserService()
+                    try:
+                        candidate.resume_text = parser_service.parse_resume(candidate.resume)
+                        candidate.save()
+                        logger.info(f"CreateCandidateView: Successfully parsed resume for candidate {candidate.id}")
+                    except Exception as e:
+                        logger.error(f"CreateCandidateView: Failed to parse resume for candidate {candidate.id}: {str(e)}", exc_info=True)
+                        # Continue without resume text
+                
+                return Response(CandidateSerializer(candidate).data, status=status.HTTP_201_CREATED)
+            except Exception as e:
+                logger.error(f"CreateCandidateView: Failed to create candidate: {str(e)}", exc_info=True)
+                return Response({
+                    'error': f'Failed to create candidate: {str(e)}'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
+        logger.warning(f"CreateCandidateView: Invalid serializer data: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -151,17 +190,20 @@ class TriggerInterviewView(BaseAPIView):
     """Trigger an interview call"""
     
     def post(self, request):
+        logger.info("TriggerInterviewView: Processing interview trigger request")
         serializer = CreateInterviewSerializer(data=request.data)
         if serializer.is_valid():
             try:
                 candidate_id = serializer.validated_data['candidate_id']
                 job_description_id = serializer.validated_data['job_description_id']
                 
+                logger.info(f"TriggerInterviewView: Triggering interview for candidate {candidate_id} with job description {job_description_id}")
+                
                 candidate = get_object_or_404(Candidate, id=candidate_id)
-                print("errorrorororororoo=============")
+                logger.info(f"TriggerInterviewView: Found candidate {candidate.id}")
 
                 job_description = get_object_or_404(JobDescription, id=job_description_id)
-                print("errorrorororororoo==========")
+                logger.info(f"TriggerInterviewView: Found job description {job_description.id}")
 
                 
                 # Create interview record
@@ -170,18 +212,27 @@ class TriggerInterviewView(BaseAPIView):
                     job_description=job_description,
                     status='pending'
                 )
+                logger.info(f"TriggerInterviewView: Created interview record with ID: {interview.id}")
                 
                 # Initiate call
                 twilio_service = TwilioService()
-                call_sid = twilio_service.initiate_call(
-                    str(interview.id),
-                    candidate.phone,
-                    job_description.questions
-                )
+                try:
+                    call_sid = twilio_service.initiate_call(
+                        str(interview.id),
+                        candidate.phone,
+                        job_description.questions
+                    )
+                    logger.info(f"TriggerInterviewView: Initiated Twilio call with SID: {call_sid}")
+                except Exception as e:
+                    logger.error(f"TriggerInterviewView: Failed to initiate Twilio call: {str(e)}", exc_info=True)
+                    interview.status = 'failed'
+                    interview.save()
+                    raise e
                 
                 interview.twilio_call_sid = call_sid
                 interview.status = 'in_progress'
                 interview.save()
+                logger.info(f"TriggerInterviewView: Updated interview {interview.id} status to in_progress")
                 
                 return Response({
                     'interview_id': interview.id,
@@ -189,13 +240,16 @@ class TriggerInterviewView(BaseAPIView):
                     'status': 'call_initiated'
                 }, status=status.HTTP_200_OK)
             except Exception as e:
+                logger.error(f"TriggerInterviewView: Error during interview trigger: {str(e)}", exc_info=True)
                 if 'interview' in locals():
                     interview.status = 'failed'
                     interview.save()
+                    logger.info(f"TriggerInterviewView: Marked interview {interview.id} as failed")
                 return Response({
                     'error': str(e)
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
+        logger.warning(f"TriggerInterviewView: Invalid serializer data: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -272,15 +326,18 @@ class TwilioWebhookView(View):
         recording_sid = request.POST.get('RecordingSid')
         call_duration = request.POST.get('CallDuration')
 
-        print(f"[CALL STATUS] SID: {call_sid}, Status: {call_status}, Recording: {recording_url}")
+        logger.info(f"TwilioWebhookView: Call status update - SID: {call_sid}, Status: {call_status}, Recording: {recording_url}")
 
         try:
             interview = Interview.objects.get(twilio_call_sid=call_sid)
+            logger.info(f"TwilioWebhookView: Found interview {interview.id} for call SID {call_sid}")
 
             if call_status == 'completed':
                 # Check if all questions have been answered
                 total_questions = len(interview.job_description.questions)
                 answered_questions = InterviewResponse.objects.filter(interview=interview).count()
+                
+                logger.info(f"TwilioWebhookView: Interview {interview.id} completed - Questions: {answered_questions}/{total_questions}")
                 
                 if answered_questions >= total_questions:
                     interview.status = 'completed'
@@ -290,83 +347,98 @@ class TwilioWebhookView(View):
                     interview.completed_at = datetime.now()
                     interview.save()
 
-                    print(f"[INTERVIEW COMPLETED] ID: {interview.id}, Questions: {answered_questions}/{total_questions}")
+                    logger.info(f"TwilioWebhookView: Interview {interview.id} marked as completed")
 
                     # Generate final results only after all questions are answered
-                    self.generate_final_results(interview)
+                    try:
+                        self.generate_final_results(interview)
+                        logger.info(f"TwilioWebhookView: Generated final results for interview {interview.id}")
+                    except Exception as e:
+                        logger.error(f"TwilioWebhookView: Failed to generate final results for interview {interview.id}: {str(e)}", exc_info=True)
                 else:
-                    print(f"[INTERVIEW INCOMPLETE] ID: {interview.id}, Questions: {answered_questions}/{total_questions}")
+                    logger.warning(f"TwilioWebhookView: Interview {interview.id} incomplete - only {answered_questions}/{total_questions} questions answered")
                     interview.status = 'failed'
                     interview.save()
 
             return HttpResponse(status=200)
         except Interview.DoesNotExist:
-            print(f"[ERROR] Interview with SID {call_sid} not found")
+            logger.error(f"TwilioWebhookView: Interview with SID {call_sid} not found")
             return HttpResponse(status=404)
+        except Exception as e:
+            logger.error(f"TwilioWebhookView: Error handling call status: {str(e)}", exc_info=True)
+            return HttpResponse(status=500)
 
     def handle_record_response(self, request):
         """Handle recorded response and return next question"""
         interview_id = request.GET.get('interview_id')
         question_number = int(request.GET.get('question_number', 1))
 
-        interview = get_object_or_404(Interview, id=interview_id)
-        questions = interview.job_description.questions
-        print(f"[RECORD RESPONSE] Interview: {interview_id}, Question: {question_number}")
+        logger.info(f"TwilioWebhookView: Processing recorded response - Interview: {interview_id}, Question: {question_number}")
 
-        # Save current recording
-        recording_url = request.POST.get('RecordingUrl')
-        if question_number <= len(questions):
-            question_text = questions[question_number - 1]
-        else:
-            question_text = f"Question {question_number}"
-
-        response_obj, created = InterviewResponse.objects.get_or_create(
-            interview=interview,
-            question_number=question_number,
-            defaults={"question": question_text, "transcript": "Processing..."}
-        )
-        response_obj.audio_url = recording_url
-        response_obj.save()
-        print(f"[SAVED RESPONSE] Q{question_number}, URL: {recording_url}")
-
-        # Transcribe the audio recording
         try:
-            transcription_service = TranscriptionService()
-            transcript = transcription_service.transcribe_audio(recording_url)
-            response_obj.transcript = transcript
-            response_obj.save()
-            print(f"[TRANSCRIBED] Q{question_number}: {transcript[:100]}...")
-        except Exception as e:
-            print(f"[TRANSCRIPTION ERROR] {e}")
-            response_obj.transcript = "Unable to transcribe audio"
-            response_obj.save()
+            interview = get_object_or_404(Interview, id=interview_id)
+            questions = interview.job_description.questions
+            logger.info(f"TwilioWebhookView: Found interview {interview_id} with {len(questions)} questions")
 
-        # Analyze response with actual transcript
-        try:
-            openai_service = OpenAIService()
-            score, feedback = openai_service.analyze_response(
-                question_text,
-                response_obj.transcript,
-                interview.candidate.resume_text
+            # Save current recording
+            recording_url = request.POST.get('RecordingUrl')
+            if question_number <= len(questions):
+                question_text = questions[question_number - 1]
+            else:
+                question_text = f"Question {question_number}"
+
+            response_obj, created = InterviewResponse.objects.get_or_create(
+                interview=interview,
+                question_number=question_number,
+                defaults={"question": question_text, "transcript": "Processing..."}
             )
-            response_obj.score = score
-            response_obj.feedback = feedback
+            response_obj.audio_url = recording_url
             response_obj.save()
-            print(f"[ANALYZED RESPONSE] Score: {score}, Feedback: {feedback[:100]}...")
+            logger.info(f"TwilioWebhookView: Saved response for Q{question_number}, URL: {recording_url}")
+
+            # Transcribe the audio recording
+            try:
+                transcription_service = TranscriptionService()
+                transcript = transcription_service.transcribe_audio(recording_url)
+                response_obj.transcript = transcript
+                response_obj.save()
+                logger.info(f"TwilioWebhookView: Transcribed Q{question_number}: {transcript[:100]}...")
+            except Exception as e:
+                logger.error(f"TwilioWebhookView: Transcription error for Q{question_number}: {str(e)}", exc_info=True)
+                response_obj.transcript = "Unable to transcribe audio"
+                response_obj.save()
+
+            # Analyze response with actual transcript
+            try:
+                openai_service = OpenAIService()
+                score, feedback = openai_service.analyze_response(
+                    question_text,
+                    response_obj.transcript,
+                    interview.candidate.resume_text
+                )
+                response_obj.score = score
+                response_obj.feedback = feedback
+                response_obj.save()
+                logger.info(f"TwilioWebhookView: Analyzed response Q{question_number} - Score: {score}")
+            except Exception as e:
+                logger.error(f"TwilioWebhookView: Analysis error for Q{question_number}: {str(e)}", exc_info=True)
+
+            # Generate TwiML for next question
+            next_question_number = question_number + 1
+            twiml = TwilioService()._create_interview_twiml(interview_id, next_question_number, questions)
+            logger.info(f"TwilioWebhookView: Generated TwiML for next question {next_question_number}")
+
+            return HttpResponse(twiml, content_type='text/xml')
         except Exception as e:
-            print(f"[ANALYSIS ERROR] {e}")
-
-        # Generate TwiML for next question
-        next_question_number = question_number + 1
-        twiml = TwilioService()._create_interview_twiml(interview_id, next_question_number, questions)
-
-        return HttpResponse(twiml, content_type='text/xml')
+            logger.error(f"TwilioWebhookView: Error handling recorded response: {str(e)}", exc_info=True)
+            return HttpResponse("Error processing response", status=500)
 
     def generate_final_results(self, interview):
         """Generate final interview results after all questions are done"""
+        logger.info(f"TwilioWebhookView: Generating final results for interview {interview.id}")
         responses = InterviewResponse.objects.filter(interview=interview).order_by('question_number')
         if not responses.exists():
-            print(f"[NO RESPONSES] Interview {interview.id}")
+            logger.warning(f"TwilioWebhookView: No responses found for interview {interview.id}")
             return
 
         try:
@@ -383,6 +455,6 @@ class TwilioWebhookView(View):
                 strengths=result_data.get('strengths', []),
                 areas_for_improvement=result_data.get('areas_for_improvement', [])
             )
-            print(f"[FINAL RESULTS GENERATED] Interview {interview.id}")
+            logger.info(f"TwilioWebhookView: Generated final results for interview {interview.id} - Score: {result_data.get('overall_score', 5.0)}, Recommendation: {result_data.get('recommendation', 'Consider')}")
         except Exception as e:
-            print(f"[FINAL RESULTS ERROR] {e}")
+            logger.error(f"TwilioWebhookView: Error generating final results for interview {interview.id}: {str(e)}", exc_info=True)

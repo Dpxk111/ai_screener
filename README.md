@@ -154,7 +154,7 @@ The environment is pre-configured with the live deployment URL. Update the envir
    TWILIO_AUTH_TOKEN=your-twilio-auth-token-here
    TWILIO_PHONE_NUMBER=your-twilio-phone-number
    API_KEY=your-custom-api-key-here
-   WHITELISTED_NUMBERS=+1234567890,+1987654321
+   WHITELISTED_NUMBERS=['*']
    WEBHOOK_BASE_URL=https://ai-screener-5.onrender.com
    DEBUG=False
    ALLOWED_HOSTS=ai-screener-5.onrender.com
