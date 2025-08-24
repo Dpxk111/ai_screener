@@ -298,21 +298,36 @@ class ManualTranscriptionView(BaseAPIView):
         
         transcribed_count = 0
         errors = []
+        audio_status = []
         
         for response in responses:
             try:
                 if response.audio_url:
-                    print(f"[DEBUG] ManualTranscriptionView: Transcribing response {response.id}")
-                    transcription_service = TranscriptionService()
-                    transcript = transcription_service.transcribe_audio(response.audio_url)
+                    print(f"[DEBUG] ManualTranscriptionView: Processing response {response.id}")
+                    print(f"[DEBUG] ManualTranscriptionView: Audio URL: {response.audio_url}")
                     
-                    if not transcript.startswith('Transcription failed:'):
-                        response.transcript = transcript
-                        response.save()
-                        transcribed_count += 1
-                        print(f"[DEBUG] ManualTranscriptionView: Successfully transcribed response {response.id}")
+                    # Check audio availability first
+                    audio_available = self._check_audio_availability(response.audio_url)
+                    audio_status.append({
+                        'response_id': str(response.id),
+                        'audio_url': response.audio_url,
+                        'available': audio_available
+                    })
+                    
+                    if audio_available:
+                        print(f"[DEBUG] ManualTranscriptionView: Audio available, transcribing response {response.id}")
+                        transcription_service = TranscriptionService()
+                        transcript = transcription_service.transcribe_audio(response.audio_url)
+                        
+                        if not transcript.startswith('Transcription failed:'):
+                            response.transcript = transcript
+                            response.save()
+                            transcribed_count += 1
+                            print(f"[DEBUG] ManualTranscriptionView: Successfully transcribed response {response.id}")
+                        else:
+                            errors.append(f"Response {response.id}: {transcript}")
                     else:
-                        errors.append(f"Response {response.id}: {transcript}")
+                        errors.append(f"Response {response.id}: Audio file not available")
                 else:
                     errors.append(f"Response {response.id}: No audio URL")
             except Exception as e:
@@ -323,8 +338,41 @@ class ManualTranscriptionView(BaseAPIView):
         return Response({
             'message': f'Transcribed {transcribed_count} responses',
             'transcribed_count': transcribed_count,
-            'errors': errors
+            'errors': errors,
+            'audio_status': audio_status
         })
+    
+    def _check_audio_availability(self, audio_url):
+        """Check if audio file is available for download"""
+        try:
+            print(f"[DEBUG] ManualTranscriptionView: Checking audio availability for: {audio_url}")
+            
+            # Extract recording SID
+            if '/Recordings/' in audio_url:
+                recording_sid = audio_url.split('/Recordings/')[-1].split('?')[0]
+            else:
+                recording_sid = audio_url.split('/')[-1].split('?')[0]
+            
+            print(f"[DEBUG] ManualTranscriptionView: Extracted recording SID: {recording_sid}")
+            
+            # Check recording via Twilio API
+            from twilio.rest import Client
+            client = Client(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN'))
+            
+            recording = client.recordings(recording_sid).fetch()
+            print(f"[DEBUG] ManualTranscriptionView: Recording status: {getattr(recording, 'status', 'N/A')}")
+            
+            # Check if recording is completed
+            if getattr(recording, 'status', '') == 'completed':
+                print(f"[DEBUG] ManualTranscriptionView: Recording is completed and available")
+                return True
+            else:
+                print(f"[DEBUG] ManualTranscriptionView: Recording status is not completed: {getattr(recording, 'status', 'N/A')}")
+                return False
+                
+        except Exception as e:
+            print(f"[ERROR] ManualTranscriptionView: Error checking audio availability: {str(e)}")
+            return False
 
 class FixStuckInterviewView(BaseAPIView):
     """Fix stuck interviews that are in progress but have no responses"""
@@ -468,6 +516,90 @@ class TranscriptionTestView(APIView):
             print(f"[ERROR] TranscriptionTestView: Transcription failed: {str(e)}")
             return Response({
                 'status': 'transcription_failed',
+                'error': str(e),
+                'audio_url': audio_url
+            }, status=500)
+
+class AudioAvailabilityView(APIView):
+    """Check audio file availability"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        print(f"[DEBUG] AudioAvailabilityView: Audio availability check request received")
+        
+        audio_url = request.data.get('audio_url')
+        if not audio_url:
+            return Response({
+                'error': 'audio_url is required'
+            }, status=400)
+        
+        print(f"[DEBUG] AudioAvailabilityView: Checking availability for URL: {audio_url}")
+        
+        try:
+            # Extract recording SID
+            if '/Recordings/' in audio_url:
+                recording_sid = audio_url.split('/Recordings/')[-1].split('?')[0]
+            else:
+                recording_sid = audio_url.split('/')[-1].split('?')[0]
+            
+            print(f"[DEBUG] AudioAvailabilityView: Extracted recording SID: {recording_sid}")
+            
+            # Check recording via Twilio API
+            from twilio.rest import Client
+            client = Client(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN'))
+            
+            recording = client.recordings(recording_sid).fetch()
+            
+            # Get recording details
+            recording_details = {
+                'sid': recording.sid,
+                'status': getattr(recording, 'status', 'N/A'),
+                'duration': getattr(recording, 'duration', 'N/A'),
+                'uri': getattr(recording, 'uri', 'N/A'),
+                'media_location': getattr(recording, 'media_location', 'N/A'),
+                'date_created': getattr(recording, 'date_created', 'N/A'),
+                'date_updated': getattr(recording, 'date_updated', 'N/A')
+            }
+            
+            print(f"[DEBUG] AudioAvailabilityView: Recording details: {recording_details}")
+            
+            # Check if recording is available
+            is_available = getattr(recording, 'status', '') == 'completed'
+            
+            # Test media URL if available
+            media_url = None
+            media_accessible = False
+            if hasattr(recording, 'uri') and recording.uri:
+                media_url = f"https://api.twilio.com{recording.uri}.mp3"
+            elif hasattr(recording, 'media_location') and recording.media_location:
+                media_url = recording.media_location
+            
+            if media_url:
+                try:
+                    test_response = requests.head(
+                        media_url,
+                        auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN')),
+                        timeout=10
+                    )
+                    media_accessible = test_response.status_code == 200
+                    print(f"[DEBUG] AudioAvailabilityView: Media URL test: {test_response.status_code}")
+                except Exception as e:
+                    print(f"[ERROR] AudioAvailabilityView: Media URL test failed: {str(e)}")
+            
+            return Response({
+                'status': 'check_completed',
+                'audio_url': audio_url,
+                'recording_sid': recording_sid,
+                'is_available': is_available,
+                'media_accessible': media_accessible,
+                'media_url': media_url,
+                'recording_details': recording_details
+            })
+            
+        except Exception as e:
+            print(f"[ERROR] AudioAvailabilityView: Check failed: {str(e)}")
+            return Response({
+                'status': 'check_failed',
                 'error': str(e),
                 'audio_url': audio_url
             }, status=500)
@@ -616,7 +748,15 @@ class TwilioWebhookView(View):
 
             # Save current recording
             recording_url = request.POST.get('RecordingUrl')
+            recording_sid = request.POST.get('RecordingSid')
             print(f"[DEBUG] TwilioWebhookView: Recording URL: {recording_url}")
+            print(f"[DEBUG] TwilioWebhookView: Recording SID: {recording_sid}")
+            
+            # Log all recording-related data
+            print(f"[DEBUG] TwilioWebhookView: All recording data from request:")
+            for key, value in request.POST.items():
+                if 'recording' in key.lower() or 'audio' in key.lower():
+                    print(f"[DEBUG] TwilioWebhookView: {key}: {value}")
             
             if question_number <= len(questions):
                 question_text = questions[question_number - 1]
@@ -633,7 +773,9 @@ class TwilioWebhookView(View):
             response_obj.audio_url = recording_url
             response_obj.save()
             print(f"[DEBUG] TwilioWebhookView: Saved response object, created: {created}")
-            logger.info(f"TwilioWebhookView: Saved response for Q{question_number}, URL: {recording_url}")
+            print(f"[DEBUG] TwilioWebhookView: Response object ID: {response_obj.id}")
+            print(f"[DEBUG] TwilioWebhookView: Audio URL saved: {response_obj.audio_url}")
+            logger.info(f"TwilioWebhookView: Saved response for Q{question_number}, URL: {recording_url}, SID: {recording_sid}")
 
             # Transcribe the audio recording
             try:

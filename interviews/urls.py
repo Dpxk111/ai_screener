@@ -26,4 +26,5 @@ urlpatterns = [
     # Debug endpoints
     path('webhook-test/', views.WebhookTestView.as_view(), name='webhook_test'),
     path('transcription-test/', views.TranscriptionTestView.as_view(), name='transcription_test'),
+    path('audio-availability/', views.AudioAvailabilityView.as_view(), name='audio_availability'),
 ]

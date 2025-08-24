@@ -462,42 +462,78 @@ class TranscriptionService:
             
             # Get recording using Twilio client
             try:
+                print(f"[DEBUG] TranscriptionService: Fetching recording from Twilio API...")
                 recording = self.twilio_client.recordings(recording_sid).fetch()
-                print(f"[DEBUG] TranscriptionService: Recording fetched: {recording.sid}")
+                print(f"[DEBUG] TranscriptionService: Recording fetched successfully")
+                print(f"[DEBUG] TranscriptionService: Recording SID: {recording.sid}")
+                print(f"[DEBUG] TranscriptionService: Recording URI: {getattr(recording, 'uri', 'N/A')}")
+                print(f"[DEBUG] TranscriptionService: Recording Media Location: {getattr(recording, 'media_location', 'N/A')}")
+                print(f"[DEBUG] TranscriptionService: Recording Status: {getattr(recording, 'status', 'N/A')}")
+                print(f"[DEBUG] TranscriptionService: Recording Duration: {getattr(recording, 'duration', 'N/A')}")
                 logger.info(f"TranscriptionService: Recording fetched: {recording.sid}")
             except Exception as e:
                 print(f"[ERROR] TranscriptionService: Failed to fetch recording: {str(e)}")
+                logger.error(f"TranscriptionService: Failed to fetch recording {recording_sid}: {str(e)}", exc_info=True)
                 raise Exception(f"Failed to fetch recording: {str(e)}")
             
             # Get the media URL
             media_url = None
             if hasattr(recording, 'uri') and recording.uri:
                 media_url = f"https://api.twilio.com{recording.uri}.mp3"
+                print(f"[DEBUG] TranscriptionService: Using URI-based media URL: {media_url}")
             elif hasattr(recording, 'media_location') and recording.media_location:
                 media_url = recording.media_location
+                print(f"[DEBUG] TranscriptionService: Using media_location-based URL: {media_url}")
             
             if not media_url:
+                print(f"[ERROR] TranscriptionService: No media URL found for recording")
+                print(f"[DEBUG] TranscriptionService: Recording attributes: {dir(recording)}")
                 raise Exception("No media URL found for recording")
             
-            print(f"[DEBUG] TranscriptionService: Media URL: {media_url}")
+            print(f"[DEBUG] TranscriptionService: Final media URL: {media_url}")
+            
+            # Test URL accessibility before downloading
+            try:
+                print(f"[DEBUG] TranscriptionService: Testing media URL accessibility...")
+                test_response = requests.head(
+                    media_url,
+                    auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN')),
+                    timeout=10
+                )
+                print(f"[DEBUG] TranscriptionService: Media URL test response: {test_response.status_code}")
+                if test_response.status_code != 200:
+                    print(f"[WARNING] TranscriptionService: Media URL not accessible: {test_response.status_code}")
+                    logger.warning(f"TranscriptionService: Media URL not accessible: {test_response.status_code}")
+            except Exception as e:
+                print(f"[WARNING] TranscriptionService: Could not test media URL: {str(e)}")
+                logger.warning(f"TranscriptionService: Could not test media URL: {str(e)}")
             
             # Download audio file
             try:
+                print(f"[DEBUG] TranscriptionService: Starting audio download...")
                 response = requests.get(
                     media_url,
                     auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN')),
                     timeout=60
                 )
                 
+                print(f"[DEBUG] TranscriptionService: Download response status: {response.status_code}")
+                print(f"[DEBUG] TranscriptionService: Download response headers: {dict(response.headers)}")
+                
                 if response.status_code != 200:
+                    print(f"[ERROR] TranscriptionService: Download failed with status {response.status_code}")
+                    print(f"[ERROR] TranscriptionService: Response content: {response.text[:500]}")
                     raise Exception(f"Failed to download audio: HTTP {response.status_code}")
                 
                 audio_data = response.content
-                print(f"[DEBUG] TranscriptionService: Downloaded audio, size: {len(audio_data)} bytes")
+                print(f"[DEBUG] TranscriptionService: Downloaded audio successfully")
+                print(f"[DEBUG] TranscriptionService: Audio size: {len(audio_data)} bytes")
+                print(f"[DEBUG] TranscriptionService: Audio content type: {response.headers.get('content-type', 'unknown')}")
                 logger.info(f"TranscriptionService: Downloaded audio, size: {len(audio_data)} bytes")
                 
             except Exception as e:
                 print(f"[ERROR] TranscriptionService: Failed to download audio: {str(e)}")
+                logger.error(f"TranscriptionService: Failed to download audio from {media_url}: {str(e)}", exc_info=True)
                 raise Exception(f"Failed to download audio: {str(e)}")
             
             # Transcribe using OpenAI Whisper
