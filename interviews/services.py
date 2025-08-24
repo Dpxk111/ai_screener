@@ -96,7 +96,7 @@ class OpenAIService:
                             line = line[:-1].strip()
                         questions.append(line)
             
-            res = self.clean_questions(questions[:7])
+            res = self.clean_questions(questions[:1])
             openai_logger.info(f"OpenAIService: Generated {len(res)} questions for {job_title}")
             return res
         except Exception as e:
@@ -196,70 +196,167 @@ class TwilioService:
     """Service for Twilio voice call integration"""
     
     def __init__(self):
+        print(f"[DEBUG] TwilioService: Initializing with Account SID: {os.getenv('TWILIO_ACCOUNT_SID', 'NOT_SET')[:10]}...")
+        print(f"[DEBUG] TwilioService: Phone number: {os.getenv('TWILIO_PHONE_NUMBER', 'NOT_SET')}")
+        print(f"[DEBUG] TwilioService: Auth token: {'SET' if os.getenv('TWILIO_AUTH_TOKEN') else 'NOT_SET'}")
+        
         self.client = Client(
             os.getenv('TWILIO_ACCOUNT_SID'),
             os.getenv('TWILIO_AUTH_TOKEN')
         )
         self.phone_number = os.getenv('TWILIO_PHONE_NUMBER')
+        
+        # Validate configuration
+        if not os.getenv('TWILIO_ACCOUNT_SID'):
+            print("[ERROR] TwilioService: TWILIO_ACCOUNT_SID not set")
+        if not os.getenv('TWILIO_AUTH_TOKEN'):
+            print("[ERROR] TwilioService: TWILIO_AUTH_TOKEN not set")
+        if not self.phone_number:
+            print("[ERROR] TwilioService: TWILIO_PHONE_NUMBER not set")
     
     def initiate_call(self, interview_id, candidate_phone, questions):
         """Initiate a voice call to the candidate"""
         try:
+            print(f"[DEBUG] TwilioService: Starting call initiation for interview {interview_id}")
+            print(f"[DEBUG] TwilioService: Candidate phone: {candidate_phone}")
+            print(f"[DEBUG] TwilioService: Number of questions: {len(questions)}")
+            
             twilio_logger.info(f"TwilioService: Initiating call for interview {interview_id} to {candidate_phone}")
+            
+            # Validate inputs
+            if not interview_id:
+                print("[ERROR] TwilioService: interview_id is empty")
+                raise ValueError("interview_id cannot be empty")
+            if not candidate_phone:
+                print("[ERROR] TwilioService: candidate_phone is empty")
+                raise ValueError("candidate_phone cannot be empty")
+            if not questions or len(questions) == 0:
+                print("[ERROR] TwilioService: questions list is empty")
+                raise ValueError("questions list cannot be empty")
             
             # Parse whitelist from env
             whitelist_env = os.getenv('WHITELISTED_NUMBERS', '["*"]')
+            print(f"[DEBUG] TwilioService: Whitelist env: {whitelist_env}")
             try:
                 whitelisted_numbers = json.loads(whitelist_env)
+                print(f"[DEBUG] TwilioService: Parsed whitelist: {whitelisted_numbers}")
                 twilio_logger.info(f"TwilioService: Loaded whitelist with {len(whitelisted_numbers)} numbers")
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                print(f"[WARNING] TwilioService: Failed to parse whitelist: {e}")
                 twilio_logger.warning(f"TwilioService: Failed to parse whitelist, using default")
                 whitelisted_numbers = ["*"]
 
             # Check if number is allowed
             if '*' not in whitelisted_numbers and candidate_phone not in whitelisted_numbers:
+                print(f"[ERROR] TwilioService: Phone number {candidate_phone} is not whitelisted")
                 twilio_logger.error(f"TwilioService: Phone number {candidate_phone} is not whitelisted")
                 raise ValueError(f"Phone number {candidate_phone} is not whitelisted")
 
+            print(f"[DEBUG] TwilioService: Generating TwiML for interview {interview_id}")
             twiml = self._create_interview_twiml(interview_id, question_number=1, questions=questions)
+            print(f"[DEBUG] TwilioService: Generated TwiML length: {len(twiml)}")
+            print(f"[DEBUG] TwilioService: TwiML preview: {twiml[:200]}...")
             twilio_logger.info(f"TwilioService: Generated TwiML for interview {interview_id}")
 
-            # Make the call
-            call = self.client.calls.create(
-                twiml=twiml,
-                to=candidate_phone,
-                from_=self.phone_number,
-                record=True,
-                status_callback=f"{os.getenv('WEBHOOK_BASE_URL', 'http://localhost:8000')}/api/webhooks/call-status/",
-                status_callback_event=['completed']
-            )
+            # Get webhook URL - IMPORTANT: For local development, you need a public URL
+            webhook_base_url = os.getenv('WEBHOOK_BASE_URL')
+            if not webhook_base_url:
+                print("[WARNING] TwilioService: WEBHOOK_BASE_URL not set, using localhost (this won't work for Twilio)")
+                webhook_base_url = 'http://localhost:8000'
+            
+            # Ensure the URL ends with a slash if needed
+            if not webhook_base_url.endswith('/'):
+                webhook_base_url += '/'
+            
+            status_callback_url = f"{webhook_base_url}api/webhooks/call-status/"
+            print(f"[DEBUG] TwilioService: Webhook base URL: {webhook_base_url}")
+            print(f"[DEBUG] TwilioService: Status callback URL: {status_callback_url}")
+            
+            # Check if webhook URL is accessible (for debugging)
+            if webhook_base_url.startswith('http://localhost'):
+                print("[WARNING] TwilioService: Using localhost URL - Twilio cannot reach this!")
+                print("[WARNING] TwilioService: You need to use ngrok or similar to expose localhost")
 
+            # Make the call
+            print(f"[DEBUG] TwilioService: Creating call with Twilio API...")
+            call_params = {
+                'twiml': twiml,
+                'to': candidate_phone,
+                'from_': self.phone_number,
+                'record': True,
+                'status_callback': status_callback_url,
+                'status_callback_event': ['completed']
+            }
+            print(f"[DEBUG] TwilioService: Call parameters: {call_params}")
+            
+            call = self.client.calls.create(**call_params)
+
+            print(f"[DEBUG] TwilioService: Call created successfully with SID: {call.sid}")
             twilio_logger.info(f"TwilioService: Successfully initiated call with SID: {call.sid}")
             return call.sid
 
         except Exception as e:
+            print(f"[ERROR] TwilioService: Error initiating call: {str(e)}")
+            print(f"[ERROR] TwilioService: Exception type: {type(e).__name__}")
+            import traceback
+            print(f"[ERROR] TwilioService: Traceback: {traceback.format_exc()}")
             twilio_logger.error(f"TwilioService: Error initiating call: {str(e)}", exc_info=True)
             raise
         
     def _create_interview_twiml(self, interview_id, question_number, questions):
-        response = VoiceResponse()
+        print(f"[DEBUG] TwilioService: Creating TwiML for interview {interview_id}, question {question_number}")
+        print(f"[DEBUG] TwilioService: Total questions: {len(questions)}")
+        
+        try:
+            response = VoiceResponse()
 
-        if question_number <= len(questions):
-            question = questions[question_number - 1]
-            response.say(f"Question {question_number}: {question}")
-            response.pause(length=1)
-            response.say("Please provide your answer now.")
-            response.record(
-                max_length=120,
-                play_beep=True,
-                action=f"{os.getenv('WEBHOOK_BASE_URL')}/api/webhooks/record-response/?interview_id={interview_id}&question_number={question_number}",
-                method='POST'
-            )
-        else:
-            response.say("Thank you for completing the interview. We will review your responses and get back to you soon. Goodbye!")
-            response.hangup()
+            if question_number <= len(questions):
+                question = questions[question_number - 1]
+                print(f"[DEBUG] TwilioService: Question text: {question}")
+                
+                # Add welcome message
+                response.say("Hello! Welcome to your automated interview. Let's begin.")
+                response.pause(length=1)
+                
+                response.say(f"Question {question_number}: {question}")
+                response.pause(length=1)
+                response.say("Please provide your answer now.")
+                
+                # Get webhook URL for recording
+                webhook_base_url = os.getenv('WEBHOOK_BASE_URL', 'http://localhost:8000')
+                # Ensure the URL ends with a slash if needed
+                if not webhook_base_url.endswith('/'):
+                    webhook_base_url += '/'
+                record_action_url = f"{webhook_base_url}api/webhooks/record-response/?interview_id={interview_id}&question_number={question_number}"
+                print(f"[DEBUG] TwilioService: Record action URL: {record_action_url}")
+                
+                response.record(
+                    max_length=120,
+                    play_beep=True,
+                    action=record_action_url,
+                    method='POST',
+                    timeout=10,
+                    transcribe=False
+                )
+            else:
+                print(f"[DEBUG] TwilioService: No more questions, ending call")
+                response.say("Thank you for completing the interview. We will review your responses and get back to you soon. Goodbye!")
+                response.hangup()
 
-        return str(response)
+            twiml_str = str(response)
+            print(f"[DEBUG] TwilioService: Generated TwiML: {twiml_str}")
+            return twiml_str
+            
+        except Exception as e:
+            print(f"[ERROR] TwilioService: Error creating TwiML: {str(e)}")
+            import traceback
+            print(f"[ERROR] TwilioService: TwiML creation traceback: {traceback.format_exc()}")
+            
+            # Fallback TwiML
+            fallback_response = VoiceResponse()
+            fallback_response.say("We're experiencing technical difficulties. Please try again later.")
+            fallback_response.hangup()
+            return str(fallback_response)
 
 
 class ResumeParserService:
@@ -329,101 +426,107 @@ class TranscriptionService:
         """Transcribe audio from URL using OpenAI Whisper"""
         try:
             logger.info(f"TranscriptionService: Starting transcription for URL: {audio_url}")
+            print(f"[DEBUG] TranscriptionService: Starting transcription for URL: {audio_url}")
             
-            # Method 1: Try direct download first (for some Twilio URLs)
+            # Extract recording SID from URL
+            recording_sid = self._extract_recording_sid(audio_url)
+            if not recording_sid:
+                raise Exception("Could not extract recording SID from URL")
+            
+            print(f"[DEBUG] TranscriptionService: Extracted recording SID: {recording_sid}")
+            
+            # Get recording using Twilio client
             try:
-                logger.info("TranscriptionService: Attempting direct download...")
-                response = requests.get(audio_url, timeout=30)
-                if response.status_code == 200:
-                    audio_data = response.content
-                    logger.info(f"TranscriptionService: Direct download successful, size: {len(audio_data)} bytes")
-                else:
-                    logger.warning(f"TranscriptionService: Direct download failed: {response.status_code}")
-                    raise Exception("Direct download failed")
+                recording = self.twilio_client.recordings(recording_sid).fetch()
+                print(f"[DEBUG] TranscriptionService: Recording fetched: {recording.sid}")
+                logger.info(f"TranscriptionService: Recording fetched: {recording.sid}")
             except Exception as e:
-                logger.warning(f"TranscriptionService: Direct download error: {str(e)}")
-                
-                # Method 2: Use Twilio client for authenticated access
-                try:
-                    logger.info("TranscriptionService: Attempting Twilio client method...")
-                    
-                    # Extract recording SID from various possible URL formats
-                    if '/Recordings/' in audio_url:
-                        recording_sid = audio_url.split('/Recordings/')[-1].split('?')[0]
-                    else:
-                        recording_sid = audio_url.split('/')[-1].split('?')[0]
-                    
-                    logger.info(f"TranscriptionService: Extracted recording SID: {recording_sid}")
-                    
-                    # Get the recording using Twilio client
-                    recording = self.twilio_client.recordings(recording_sid).fetch()
-                    logger.info(f"TranscriptionService: Recording fetched: {recording.sid}")
-                    
-                    # Try different media URLs
-                    media_urls = []
-                    if hasattr(recording, 'media_location'):
-                        media_urls.append(recording.media_location)
-                    if hasattr(recording, 'uri'):
-                        media_urls.append(f"https://api.twilio.com{recording.uri}.mp3")
-                    
-                    audio_data = None
-                    for media_url in media_urls:
-                        try:
-                            logger.info(f"TranscriptionService: Trying media URL: {media_url}")
-                            response = requests.get(
-                                media_url,
-                                auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN')),
-                                timeout=30
-                            )
-                            if response.status_code == 200:
-                                audio_data = response.content
-                                logger.info(f"TranscriptionService: Media download successful, size: {len(audio_data)} bytes")
-                                break
-                            else:
-                                logger.warning(f"TranscriptionService: Media download failed: {response.status_code}")
-                        except Exception as e:
-                            logger.warning(f"TranscriptionService: Media download error: {str(e)}")
-                    
-                    if not audio_data:
-                        raise Exception("Could not download audio from any media URL")
-                        
-                except Exception as e:
-                    logger.error(f"TranscriptionService: Twilio client method error: {str(e)}", exc_info=True)
-                    raise
+                print(f"[ERROR] TranscriptionService: Failed to fetch recording: {str(e)}")
+                raise Exception(f"Failed to fetch recording: {str(e)}")
             
-            # Determine audio format and transcribe
-            if audio_data:
-                logger.info(f"TranscriptionService: Audio data obtained, attempting transcription...")
+            # Get the media URL
+            media_url = None
+            if hasattr(recording, 'uri') and recording.uri:
+                media_url = f"https://api.twilio.com{recording.uri}.mp3"
+            elif hasattr(recording, 'media_location') and recording.media_location:
+                media_url = recording.media_location
+            
+            if not media_url:
+                raise Exception("No media URL found for recording")
+            
+            print(f"[DEBUG] TranscriptionService: Media URL: {media_url}")
+            
+            # Download audio file
+            try:
+                response = requests.get(
+                    media_url,
+                    auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN')),
+                    timeout=60
+                )
                 
-                # Try different file formats
-                file_formats = [
-                    ("audio.wav", "audio/wav"),
-                    ("audio.mp3", "audio/mpeg"),
-                    ("audio.m4a", "audio/mp4"),
-                    ("audio.webm", "audio/webm")
-                ]
+                if response.status_code != 200:
+                    raise Exception(f"Failed to download audio: HTTP {response.status_code}")
                 
-                for filename, mime_type in file_formats:
-                    try:
-                        logger.info(f"TranscriptionService: Trying format: {mime_type}")
-                        transcript = self.openai_client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=(filename, audio_data, mime_type),
-                            response_format="text"
-                        )
-                        
-                        result = transcript.strip()
-                        logger.info(f"TranscriptionService: Success! Transcript: {result[:100]}...")
-                        return result
-                        
-                    except Exception as e:
-                        logger.warning(f"TranscriptionService: Format {mime_type} failed: {str(e)}")
-                        continue
+                audio_data = response.content
+                print(f"[DEBUG] TranscriptionService: Downloaded audio, size: {len(audio_data)} bytes")
+                logger.info(f"TranscriptionService: Downloaded audio, size: {len(audio_data)} bytes")
                 
-                raise Exception("All audio formats failed")
-            else:
-                raise Exception("No audio data obtained")
+            except Exception as e:
+                print(f"[ERROR] TranscriptionService: Failed to download audio: {str(e)}")
+                raise Exception(f"Failed to download audio: {str(e)}")
+            
+            # Transcribe using OpenAI Whisper
+            try:
+                print(f"[DEBUG] TranscriptionService: Starting OpenAI transcription...")
+                transcript = self.openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=("audio.mp3", audio_data, "audio/mpeg"),
+                    response_format="text"
+                )
+                
+                result = transcript.strip()
+                print(f"[DEBUG] TranscriptionService: Transcription successful: {result[:100]}...")
+                logger.info(f"TranscriptionService: Transcription successful: {result[:100]}...")
+                return result
+                
+            except Exception as e:
+                print(f"[ERROR] TranscriptionService: OpenAI transcription failed: {str(e)}")
+                logger.error(f"TranscriptionService: OpenAI transcription failed: {str(e)}", exc_info=True)
+                raise Exception(f"OpenAI transcription failed: {str(e)}")
                 
         except Exception as e:
-            logger.error(f"TranscriptionService: Final error: {str(e)}", exc_info=True)
-            return f"Unable to transcribe audio: {str(e)}"
+            error_msg = f"Transcription failed: {str(e)}"
+            print(f"[ERROR] TranscriptionService: {error_msg}")
+            logger.error(f"TranscriptionService: {error_msg}", exc_info=True)
+            return error_msg
+    
+    def _extract_recording_sid(self, audio_url):
+        """Extract recording SID from various URL formats"""
+        try:
+            # Handle different URL formats
+            if '/Recordings/' in audio_url:
+                # Format: https://api.twilio.com/2010-04-01/Accounts/ACxxx/Recordings/RExxx
+                recording_sid = audio_url.split('/Recordings/')[-1].split('?')[0]
+            elif '/recordings/' in audio_url:
+                # Format: https://api.twilio.com/2010-04-01/Accounts/ACxxx/recordings/RExxx
+                recording_sid = audio_url.split('/recordings/')[-1].split('?')[0]
+            else:
+                # Try to extract from the end of the URL
+                parts = audio_url.split('/')
+                for part in reversed(parts):
+                    if part.startswith('RE') and len(part) > 10:
+                        recording_sid = part.split('?')[0]
+                        break
+                else:
+                    return None
+            
+            # Validate SID format (should start with RE and be 34 characters)
+            if recording_sid.startswith('RE') and len(recording_sid) == 34:
+                return recording_sid
+            else:
+                print(f"[WARNING] TranscriptionService: Invalid recording SID format: {recording_sid}")
+                return None
+                
+        except Exception as e:
+            print(f"[ERROR] TranscriptionService: Failed to extract recording SID: {str(e)}")
+            return None

@@ -14,10 +14,15 @@ urlpatterns = [
     path('trigger-interview/', views.TriggerInterviewView.as_view(), name='trigger_interview'),
     path('interviews/<uuid:interview_id>/', views.GetInterviewStatusView.as_view(), name='get_interview_status'),
     path('interviews/<uuid:interview_id>/results/', views.GetResultsView.as_view(), name='get_results'),
+    path('interviews/<uuid:interview_id>/transcribe/', views.ManualTranscriptionView.as_view(), name='manual_transcription'),
     path('interviews/list/', views.ListInterviewsView.as_view(), name='list_interviews'),
     path('job-descriptions/list/', views.ListJobDescriptionsView.as_view(), name='list_job_descriptions'),
 
     # Twilio webhooks
     path('webhooks/call-status/', views.TwilioWebhookView.as_view(), {'webhook_type': 'call-status'}, name='call_status_webhook'),
     path('webhooks/record-response/', views.TwilioWebhookView.as_view(), {'webhook_type': 'record-response'}, name='record_response_webhook'),
+    
+    # Debug endpoints
+    path('webhook-test/', views.WebhookTestView.as_view(), name='webhook_test'),
+    path('transcription-test/', views.TranscriptionTestView.as_view(), name='transcription_test'),
 ]

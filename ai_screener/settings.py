@@ -59,6 +59,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'interviews.middleware.ErrorLoggingMiddleware',
 ]
 
 ROOT_URLCONF = 'ai_screener.urls'
