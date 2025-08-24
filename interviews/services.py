@@ -64,12 +64,12 @@ class OpenAIService:
                 openai_logger.info(f"OpenAIService: Making request to OpenAI with model {self.model} (attempt {attempt + 1}/{max_retries})")
                 
                 start_time = time.time()
-                response = openai.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=temperature,
-                    max_tokens=max_tokens
-                )
+            response = openai.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
                 end_time = time.time()
                 
                 result = response.choices[0].message.content.strip()
@@ -82,7 +82,7 @@ class OpenAIService:
                 
                 openai_logger.info(f"OpenAIService: Successfully received response from OpenAI")
                 return result
-            except Exception as e:
+        except Exception as e:
                 error_msg = str(e)
                 openai_logger.warning(f"OpenAIService: OpenAI request error (attempt {attempt + 1}/{max_retries}): {error_msg}")
                 
@@ -96,7 +96,7 @@ class OpenAIService:
                 
                 # If it's the last attempt or non-retryable error, log and raise
                 openai_logger.error(f"OpenAIService: Final OpenAI request error after {max_retries} attempts: {error_msg}", exc_info=True)
-                raise
+            raise
     def clean_questions(self, raw_questions):
         """Cleans a list of questions returned by AI"""
         print(f"[DEBUG] OpenAIService: Cleaning {len(raw_questions)} raw questions")
@@ -158,22 +158,22 @@ class OpenAIService:
 
             try:
                 print(f"[DEBUG] OpenAIService: Attempting to parse JSON...")
-                questions = json.loads(questions_text)
+            questions = json.loads(questions_text)
                 print(f"[DEBUG] OpenAIService: Successfully parsed JSON: {questions}")
                 openai_logger.info(f"OpenAIService: Successfully parsed JSON questions for {job_title}")
             except json.JSONDecodeError as e:
                 print(f"[WARNING] OpenAIService: JSON decode failed: {str(e)}")
                 print(f"[DEBUG] OpenAIService: Falling back to line parsing...")
                 openai_logger.warning(f"OpenAIService: JSON decode failed for {job_title}, falling back to line parsing")
-                lines = questions_text.split("\n")
-                questions = []
+            lines = questions_text.split("\n")
+            questions = []
                 for i, line in enumerate(lines):
                     print(f"[DEBUG] OpenAIService: Processing line {i+1}: '{line}'")
-                    line = line.strip().strip('"').strip("'")
-                    if line and line not in ["[", "]"]:
-                        if line.endswith(","):
-                            line = line[:-1].strip()
-                        questions.append(line)
+                line = line.strip().strip('"').strip("'")
+                if line and line not in ["[", "]"]:
+                    if line.endswith(","):
+                        line = line[:-1].strip()
+                    questions.append(line)
                         print(f"[DEBUG] OpenAIService: Added line {i+1} as question: '{line}'")
                 
                 print(f"[DEBUG] OpenAIService: Line parsing result: {questions}")
@@ -182,7 +182,7 @@ class OpenAIService:
             res = self.clean_questions(questions[:1])
             print(f"[DEBUG] OpenAIService: Final questions after cleaning: {res}")
             openai_logger.info(f"OpenAIService: Generated {len(res)} questions for {job_title}")
-            return res
+        return res
         except Exception as e:
             openai_logger.error(f"OpenAIService: Error generating questions for {job_title}: {str(e)}", exc_info=True)
             # Fallback to default questions if OpenAI fails
@@ -456,7 +456,7 @@ class TwilioService:
         print(f"[DEBUG] TwilioService: Total questions: {len(questions)}")
         
         try:
-            response = VoiceResponse()
+        response = VoiceResponse()
 
             # Only ask the first question (question_number should always be 1)
             if question_number == 1 and len(questions) > 0:
@@ -468,8 +468,8 @@ class TwilioService:
                 response.pause(length=1)
                 
                 response.say(f"Question: {question}")
-                response.pause(length=1)
-                response.say("Please provide your answer now.")
+            response.pause(length=1)
+            response.say("Please provide your answer now.")
                 
                 # Get webhook URL for recording
                 webhook_base_url = os.getenv('WEBHOOK_BASE_URL', 'http://localhost:8000')
@@ -479,18 +479,18 @@ class TwilioService:
                 record_action_url = f"{webhook_base_url}api/webhooks/record-response/?interview_id={interview_id}&question_number=1"
                 print(f"[DEBUG] TwilioService: Record action URL: {record_action_url}")
                 
-                response.record(
-                    max_length=120,
-                    play_beep=True,
+            response.record(
+                max_length=120,
+                play_beep=True,
                     action=record_action_url,
                     method='POST',
                     timeout=10,
                     transcribe=False
-                )
-            else:
+            )
+        else:
                 print(f"[DEBUG] TwilioService: No question available or not first question, ending call")
                 response.say("Thank you for completing the interview. We will review your response and get back to you soon. Goodbye!")
-                response.hangup()
+            response.hangup()
 
             twiml_str = str(response)
             print(f"[DEBUG] TwilioService: Generated TwiML: {twiml_str}")
@@ -612,17 +612,17 @@ class TranscriptionService:
         print(f"[DEBUG] TranscriptionService: Twilio Auth Token set: {'YES' if os.getenv('TWILIO_AUTH_TOKEN') else 'NO'}")
         
         try:
-            self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             print(f"[DEBUG] TranscriptionService: OpenAI client initialized successfully")
         except Exception as e:
             print(f"[ERROR] TranscriptionService: Failed to initialize OpenAI client: {str(e)}")
             raise
         
         try:
-            self.twilio_client = Client(
-                os.getenv('TWILIO_ACCOUNT_SID'),
-                os.getenv('TWILIO_AUTH_TOKEN')
-            )
+        self.twilio_client = Client(
+            os.getenv('TWILIO_ACCOUNT_SID'),
+            os.getenv('TWILIO_AUTH_TOKEN')
+        )
             print(f"[DEBUG] TranscriptionService: Twilio client initialized successfully")
         except Exception as e:
             print(f"[ERROR] TranscriptionService: Failed to initialize Twilio client: {str(e)}")
@@ -673,7 +673,7 @@ class TranscriptionService:
                         waited += wait_interval
                         
                         try:
-                            recording = self.twilio_client.recordings(recording_sid).fetch()
+                    recording = self.twilio_client.recordings(recording_sid).fetch()
                             recording_status = getattr(recording, 'status', '')
                             print(f"[DEBUG] TranscriptionService: Recording status after {waited}s: {recording_status}")
                         except Exception as e:
@@ -730,22 +730,22 @@ class TranscriptionService:
             for attempt in range(max_retries):
                 try:
                     print(f"[DEBUG] TranscriptionService: Starting audio download (attempt {attempt + 1}/{max_retries})...")
-                    response = requests.get(
-                        media_url,
-                        auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN')),
+                            response = requests.get(
+                                media_url,
+                                auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN')),
                         timeout=60
-                    )
+                            )
                     
                     print(f"[DEBUG] TranscriptionService: Download response status: {response.status_code}")
                     print(f"[DEBUG] TranscriptionService: Download response headers: {dict(response.headers)}")
                     
-                    if response.status_code == 200:
-                        audio_data = response.content
+                            if response.status_code == 200:
+                                audio_data = response.content
                         print(f"[DEBUG] TranscriptionService: Downloaded audio successfully")
                         print(f"[DEBUG] TranscriptionService: Audio size: {len(audio_data)} bytes")
                         print(f"[DEBUG] TranscriptionService: Audio content type: {response.headers.get('content-type', 'unknown')}")
                         logger.info(f"TranscriptionService: Downloaded audio, size: {len(audio_data)} bytes")
-                        break
+                                break
                     elif response.status_code == 404:
                         print(f"[WARNING] TranscriptionService: Audio file not found (404) on attempt {attempt + 1}")
                         if attempt < max_retries - 1:
@@ -757,7 +757,7 @@ class TranscriptionService:
                         else:
                             print(f"[ERROR] TranscriptionService: Audio file still not available after {max_retries} attempts")
                             raise Exception(f"Audio file not available after {max_retries} attempts (HTTP 404)")
-                    else:
+                            else:
                         print(f"[ERROR] TranscriptionService: Download failed with status {response.status_code}")
                         print(f"[ERROR] TranscriptionService: Response content: {response.text[:500]}")
                         raise Exception(f"Failed to download audio: HTTP {response.status_code}")
@@ -778,18 +778,18 @@ class TranscriptionService:
             # Transcribe using OpenAI Whisper
             try:
                 print(f"[DEBUG] TranscriptionService: Starting OpenAI transcription...")
-                transcript = self.openai_client.audio.transcriptions.create(
-                    model="whisper-1",
+                        transcript = self.openai_client.audio.transcriptions.create(
+                            model="whisper-1",
                     file=("audio.mp3", audio_data, "audio/mpeg"),
-                    response_format="text"
-                )
-                
-                result = transcript.strip()
+                            response_format="text"
+                        )
+                        
+                        result = transcript.strip()
                 print(f"[DEBUG] TranscriptionService: Transcription successful: {result[:100]}...")
                 logger.info(f"TranscriptionService: Transcription successful: {result[:100]}...")
-                return result
-                
-            except Exception as e:
+                        return result
+                        
+                    except Exception as e:
                 print(f"[ERROR] TranscriptionService: OpenAI transcription failed: {str(e)}")
                 logger.error(f"TranscriptionService: OpenAI transcription failed: {str(e)}", exc_info=True)
                 raise Exception(f"OpenAI transcription failed: {str(e)}")
