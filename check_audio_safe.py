@@ -47,9 +47,7 @@ def check_audio_availability(audio_url):
         # Get media URL
         media_url = None
         if hasattr(recording, 'uri') and recording.uri:
-            # Fix: Remove .json and add .mp3 correctly
-            base_uri = recording.uri.replace('.json', '')
-            media_url = f"https://api.twilio.com{base_uri}.mp3"
+            media_url = f"https://api.twilio.com{recording.uri}.mp3"
         elif hasattr(recording, 'media_location') and recording.media_location:
             media_url = recording.media_location
         

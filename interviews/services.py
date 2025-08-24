@@ -64,12 +64,12 @@ class OpenAIService:
                 openai_logger.info(f"OpenAIService: Making request to OpenAI with model {self.model} (attempt {attempt + 1}/{max_retries})")
                 
                 start_time = time.time()
-                response = openai.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=temperature,
-                    max_tokens=max_tokens
-                )
+            response = openai.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
                 end_time = time.time()
                 
                 result = response.choices[0].message.content.strip()
@@ -82,7 +82,7 @@ class OpenAIService:
                 
                 openai_logger.info(f"OpenAIService: Successfully received response from OpenAI")
                 return result
-            except Exception as e:
+        except Exception as e:
                 error_msg = str(e)
                 openai_logger.warning(f"OpenAIService: OpenAI request error (attempt {attempt + 1}/{max_retries}): {error_msg}")
                 
@@ -96,7 +96,7 @@ class OpenAIService:
                 
                 # If it's the last attempt or non-retryable error, log and raise
                 openai_logger.error(f"OpenAIService: Final OpenAI request error after {max_retries} attempts: {error_msg}", exc_info=True)
-                raise
+            raise
     def clean_questions(self, raw_questions):
         """Cleans a list of questions returned by AI"""
         print(f"[DEBUG] OpenAIService: Cleaning {len(raw_questions)} raw questions")
@@ -158,22 +158,22 @@ class OpenAIService:
 
             try:
                 print(f"[DEBUG] OpenAIService: Attempting to parse JSON...")
-                questions = json.loads(questions_text)
+            questions = json.loads(questions_text)
                 print(f"[DEBUG] OpenAIService: Successfully parsed JSON: {questions}")
                 openai_logger.info(f"OpenAIService: Successfully parsed JSON questions for {job_title}")
             except json.JSONDecodeError as e:
                 print(f"[WARNING] OpenAIService: JSON decode failed: {str(e)}")
                 print(f"[DEBUG] OpenAIService: Falling back to line parsing...")
                 openai_logger.warning(f"OpenAIService: JSON decode failed for {job_title}, falling back to line parsing")
-                lines = questions_text.split("\n")
-                questions = []
+            lines = questions_text.split("\n")
+            questions = []
                 for i, line in enumerate(lines):
                     print(f"[DEBUG] OpenAIService: Processing line {i+1}: '{line}'")
-                    line = line.strip().strip('"').strip("'")
-                    if line and line not in ["[", "]"]:
-                        if line.endswith(","):
-                            line = line[:-1].strip()
-                        questions.append(line)
+                line = line.strip().strip('"').strip("'")
+                if line and line not in ["[", "]"]:
+                    if line.endswith(","):
+                        line = line[:-1].strip()
+                    questions.append(line)
                         print(f"[DEBUG] OpenAIService: Added line {i+1} as question: '{line}'")
                 
                 print(f"[DEBUG] OpenAIService: Line parsing result: {questions}")
@@ -182,7 +182,7 @@ class OpenAIService:
             res = self.clean_questions(questions[:1])
             print(f"[DEBUG] OpenAIService: Final questions after cleaning: {res}")
             openai_logger.info(f"OpenAIService: Generated {len(res)} questions for {job_title}")
-            return res
+        return res
         except Exception as e:
             openai_logger.error(f"OpenAIService: Error generating questions for {job_title}: {str(e)}", exc_info=True)
             # Fallback to default questions if OpenAI fails
@@ -341,196 +341,171 @@ class OpenAIService:
 
 
 class TwilioService:
-    """Service for Twilio voice call integration with proper interview flow"""
-
+    """Service for Twilio voice call integration"""
+    
     def __init__(self):
-        self.account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        self.auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-        self.phone_number = os.getenv("TWILIO_PHONE_NUMBER")
-
-        logger.debug(f"[TwilioService] Initializing with Account SID: {self.account_sid[:10] if self.account_sid else 'NOT_SET'}...")
-        logger.debug(f"[TwilioService] Phone number: {self.phone_number}")
-        logger.debug(f"[TwilioService] Auth token: {'SET' if self.auth_token else 'NOT_SET'}")
-
-        if not self.account_sid:
-            logger.error("[TwilioService] TWILIO_ACCOUNT_SID not set")
-        if not self.auth_token:
-            logger.error("[TwilioService] TWILIO_AUTH_TOKEN not set")
+        print(f"[DEBUG] TwilioService: Initializing with Account SID: {os.getenv('TWILIO_ACCOUNT_SID', 'NOT_SET')[:10]}...")
+        print(f"[DEBUG] TwilioService: Phone number: {os.getenv('TWILIO_PHONE_NUMBER', 'NOT_SET')}")
+        print(f"[DEBUG] TwilioService: Auth token: {'SET' if os.getenv('TWILIO_AUTH_TOKEN') else 'NOT_SET'}")
+        
+        self.client = Client(
+            os.getenv('TWILIO_ACCOUNT_SID'),
+            os.getenv('TWILIO_AUTH_TOKEN')
+        )
+        self.phone_number = os.getenv('TWILIO_PHONE_NUMBER')
+        
+        # Validate configuration
+        if not os.getenv('TWILIO_ACCOUNT_SID'):
+            print("[ERROR] TwilioService: TWILIO_ACCOUNT_SID not set")
+        if not os.getenv('TWILIO_AUTH_TOKEN'):
+            print("[ERROR] TwilioService: TWILIO_AUTH_TOKEN not set")
         if not self.phone_number:
-            logger.error("[TwilioService] TWILIO_PHONE_NUMBER not set")
-
-        self.client = Client(self.account_sid, self.auth_token)
-
+            print("[ERROR] TwilioService: TWILIO_PHONE_NUMBER not set")
+    
     def initiate_call(self, interview_id, candidate_phone, questions):
         """Initiate a voice call to the candidate"""
         try:
-            logger.debug(f"[TwilioService] Starting call initiation for interview {interview_id}")
-            logger.debug(f"[TwilioService] Candidate phone: {candidate_phone}")
-            logger.debug(f"[TwilioService] Number of questions: {len(questions)}")
-
+            print(f"[DEBUG] TwilioService: Starting call initiation for interview {interview_id}")
+            print(f"[DEBUG] TwilioService: Candidate phone: {candidate_phone}")
+            print(f"[DEBUG] TwilioService: Number of questions: {len(questions)}")
+            
+            twilio_logger.info(f"TwilioService: Initiating call for interview {interview_id} to {candidate_phone}")
+            
             # Validate inputs
             if not interview_id:
+                print("[ERROR] TwilioService: interview_id is empty")
                 raise ValueError("interview_id cannot be empty")
             if not candidate_phone:
+                print("[ERROR] TwilioService: candidate_phone is empty")
                 raise ValueError("candidate_phone cannot be empty")
-            if not questions:
+            if not questions or len(questions) == 0:
+                print("[ERROR] TwilioService: questions list is empty")
                 raise ValueError("questions list cannot be empty")
-
+            
             # Parse whitelist from env
-            whitelist_env = os.getenv("WHITELISTED_NUMBERS", '["*"]')
+            whitelist_env = os.getenv('WHITELISTED_NUMBERS', '["*"]')
+            print(f"[DEBUG] TwilioService: Whitelist env: {whitelist_env}")
             try:
                 whitelisted_numbers = json.loads(whitelist_env)
-            except json.JSONDecodeError:
-                logger.warning("[TwilioService] Failed to parse whitelist, using default")
+                print(f"[DEBUG] TwilioService: Parsed whitelist: {whitelisted_numbers}")
+                twilio_logger.info(f"TwilioService: Loaded whitelist with {len(whitelisted_numbers)} numbers")
+            except json.JSONDecodeError as e:
+                print(f"[WARNING] TwilioService: Failed to parse whitelist: {e}")
+                twilio_logger.warning(f"TwilioService: Failed to parse whitelist, using default")
                 whitelisted_numbers = ["*"]
 
-            if "*" not in whitelisted_numbers and candidate_phone not in whitelisted_numbers:
-                logger.error(f"[TwilioService] Phone number {candidate_phone} is not whitelisted")
+            # Check if number is allowed
+            if '*' not in whitelisted_numbers and candidate_phone not in whitelisted_numbers:
+                print(f"[ERROR] TwilioService: Phone number {candidate_phone} is not whitelisted")
+                twilio_logger.error(f"TwilioService: Phone number {candidate_phone} is not whitelisted")
                 raise ValueError(f"Phone number {candidate_phone} is not whitelisted")
 
-            # Get webhook base URL
-            webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://localhost:8000")
-            if not webhook_base_url.endswith("/"):
-                webhook_base_url += "/"
-
-            # Generate initial TwiML for the first question
+            print(f"[DEBUG] TwilioService: Generating TwiML for interview {interview_id}")
             twiml = self._create_interview_twiml(interview_id, question_number=1, questions=questions)
-            logger.debug(f"[TwilioService] Generated TwiML preview: {twiml[:200]}...")
+            print(f"[DEBUG] TwilioService: Generated TwiML length: {len(twiml)}")
+            print(f"[DEBUG] TwilioService: TwiML preview: {twiml[:200]}...")
+            twilio_logger.info(f"TwilioService: Generated TwiML for interview {interview_id}")
 
-            # Set up status callback
+            # Get webhook URL - IMPORTANT: For local development, you need a public URL
+            webhook_base_url = os.getenv('WEBHOOK_BASE_URL')
+            if not webhook_base_url:
+                print("[WARNING] TwilioService: WEBHOOK_BASE_URL not set, using localhost (this won't work for Twilio)")
+                webhook_base_url = 'http://localhost:8000'
+            
+            # Ensure the URL ends with a slash if needed
+            if not webhook_base_url.endswith('/'):
+                webhook_base_url += '/'
+            
             status_callback_url = f"{webhook_base_url}api/webhooks/call-status/"
-
-            if "localhost" in webhook_base_url:
-                logger.warning("[TwilioService] Using localhost URL - Twilio cannot reach this! Use ngrok or deploy.")
+            print(f"[DEBUG] TwilioService: Webhook base URL: {webhook_base_url}")
+            print(f"[DEBUG] TwilioService: Status callback URL: {status_callback_url}")
+            
+            # Check if webhook URL is accessible (for debugging)
+            if webhook_base_url.startswith('http://localhost'):
+                print("[WARNING] TwilioService: Using localhost URL - Twilio cannot reach this!")
+                print("[WARNING] TwilioService: You need to use ngrok or similar to expose localhost")
 
             # Make the call
-            call = self.client.calls.create(
-                twiml=twiml,
-                to=candidate_phone,
-                from_=self.phone_number,
-                record=True,
-                status_callback=status_callback_url,
-                status_callback_event=["completed", "failed", "busy", "no-answer"],
-                status_callback_method="POST",
-            )
+            print(f"[DEBUG] TwilioService: Creating call with Twilio API...")
+            call_params = {
+                'twiml': twiml,
+                'to': candidate_phone,
+                'from_': self.phone_number,
+                'record': True,
+                'status_callback': status_callback_url,
+                'status_callback_event': ['completed']
+            }
+            print(f"[DEBUG] TwilioService: Call parameters: {call_params}")
+            
+            call = self.client.calls.create(**call_params)
 
-            logger.info(f"[TwilioService] Call initiated successfully, SID={call.sid}")
+            print(f"[DEBUG] TwilioService: Call created successfully with SID: {call.sid}")
+            twilio_logger.info(f"TwilioService: Successfully initiated call with SID: {call.sid}")
             return call.sid
 
         except Exception as e:
-            logger.error(f"[TwilioService] Error initiating call: {e}", exc_info=True)
+            print(f"[ERROR] TwilioService: Error initiating call: {str(e)}")
+            print(f"[ERROR] TwilioService: Exception type: {type(e).__name__}")
+            import traceback
+            print(f"[ERROR] TwilioService: Traceback: {traceback.format_exc()}")
+            twilio_logger.error(f"TwilioService: Error initiating call: {str(e)}", exc_info=True)
             raise
-
+        
     def _create_interview_twiml(self, interview_id, question_number, questions):
-        """Generate TwiML for the interview flow"""
-        response = VoiceResponse()
+        print(f"[DEBUG] TwilioService: Creating TwiML for interview {interview_id}, question {question_number}")
+        print(f"[DEBUG] TwilioService: Total questions: {len(questions)}")
         
         try:
-            # Get webhook base URL
-            webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://localhost:8000")
-            if not webhook_base_url.endswith("/"):
-                webhook_base_url += "/"
-
-            if question_number == 1:
-                # Welcome message for first question
-                response.say("Hello! Welcome to your automated interview. I'll be asking you a few questions today.")
-                response.pause(length=1)
-                response.say("Please take your time to think about each question before answering.")
-                response.pause(length=1)
-                response.say("Let's begin with the first question.")
-                response.pause(length=1)
-
-            # Ask the current question
-            if question_number <= len(questions):
-                question_text = questions[question_number - 1]
-                response.say(f"Question {question_number}: {question_text}")
-                response.pause(length=1)
-                response.say("Please provide your answer now.")
-
-                # Set up recording with webhook
-                record_action_url = f"{webhook_base_url}api/webhooks/record-response/"
-                
-                response.record(
-                    max_length=180,  # 3 minutes max
-                    play_beep=True,
-                    action=record_action_url,
-                    method="POST",
-                    timeout=15,  # Wait 15 seconds for answer
-                    transcribe=False,
-                    trim="trim-silence",
-                    recording_status_callback=f"{webhook_base_url}api/webhooks/recording-status/",
-                    recording_status_callback_method="POST",
-                    recording_status_callback_event=["completed"],
-                    action_on_empty_result="true",
-                    # Pass custom parameters to the webhook
-                    action_url=f"{record_action_url}?interview_id={interview_id}&question_number={question_number}"
-                )
-            else:
-                # Interview completed
-                response.say("Thank you for completing all the interview questions.")
-                response.pause(length=1)
-                response.say("Your responses have been recorded and will be reviewed.")
-                response.pause(length=1)
-                response.say("Goodbye and good luck!")
-                response.hangup()
-
-            return str(response)
-            
-        except Exception as e:
-            logger.error(f"[TwilioService] Error creating TwiML: {e}", exc_info=True)
-            # Fallback response
-            response.say("We're experiencing technical difficulties. Please try again later.")
-            response.hangup()
-            return str(response)
-
-    def create_next_question_twiml(self, interview_id, question_number, questions):
-        """Generate TwiML for the next question in the sequence"""
-        return self._create_interview_twiml(interview_id, question_number, questions)
-
-    def create_completion_twiml(self):
-        """Generate TwiML for interview completion"""
         response = VoiceResponse()
-        response.say("Thank you for completing the interview. Your responses have been recorded and will be reviewed.")
-        response.pause(length=1)
-        response.say("Goodbye and good luck!")
-        response.hangup()
-        return str(response)
 
-    def get_call_status(self, call_sid):
-        """Get the status of a Twilio call"""
-        try:
-            call = self.client.calls(call_sid).fetch()
-            return {
-                'sid': call.sid,
-                'status': call.status,
-                'duration': call.duration,
-                'start_time': call.start_time,
-                'end_time': call.end_time,
-                'error_code': getattr(call, 'error_code', None),
-                'error_message': getattr(call, 'error_message', None)
-            }
-        except Exception as e:
-            logger.error(f"[TwilioService] Error getting call status: {e}", exc_info=True)
-            raise
+            # Only ask the first question (question_number should always be 1)
+            if question_number == 1 and len(questions) > 0:
+                question = questions[0]  # Always use the first question
+                print(f"[DEBUG] TwilioService: Question text: {question}")
+                
+                # Add welcome message
+                response.say("Hello! Welcome to your automated interview. Let's begin.")
+                response.pause(length=1)
+                
+                response.say(f"Question: {question}")
+            response.pause(length=1)
+            response.say("Please provide your answer now.")
+                
+                # Get webhook URL for recording
+                webhook_base_url = os.getenv('WEBHOOK_BASE_URL', 'http://localhost:8000')
+                # Ensure the URL ends with a slash if needed
+                if not webhook_base_url.endswith('/'):
+                    webhook_base_url += '/'
+                record_action_url = f"{webhook_base_url}api/webhooks/record-response/?interview_id={interview_id}&question_number=1"
+                print(f"[DEBUG] TwilioService: Record action URL: {record_action_url}")
+                
+            response.record(
+                max_length=120,
+                play_beep=True,
+                    action=record_action_url,
+                    method='POST',
+                    timeout=10,
+                    transcribe=False
+            )
+        else:
+                print(f"[DEBUG] TwilioService: No question available or not first question, ending call")
+                response.say("Thank you for completing the interview. We will review your response and get back to you soon. Goodbye!")
+            response.hangup()
 
-    def get_recording_url(self, recording_sid):
-        """Get the media URL for a recording"""
-        try:
-            recording = self.client.recordings(recording_sid).fetch()
+            twiml_str = str(response)
+            print(f"[DEBUG] TwilioService: Generated TwiML: {twiml_str}")
+            return twiml_str
             
-            # Get the media URL
-            if hasattr(recording, 'uri') and recording.uri:
-                base_uri = recording.uri.replace('.json', '')
-                media_url = f"https://api.twilio.com{base_uri}.mp3"
-            elif hasattr(recording, 'media_location') and recording.media_location:
-                media_url = recording.media_location
-            else:
-                raise ValueError("No media URL found for recording")
-            
-            return media_url
         except Exception as e:
-            logger.error(f"[TwilioService] Error getting recording URL: {e}", exc_info=True)
-            raise
+            print(f"[ERROR] TwilioService: Error creating TwiML: {str(e)}")
+            import traceback
+            print(f"[ERROR] TwilioService: TwiML creation traceback: {traceback.format_exc()}")
+            
+            # Fallback TwiML
+            fallback_response = VoiceResponse()
+            fallback_response.say("We're experiencing technical difficulties. Please try again later.")
+            fallback_response.hangup()
+            return str(fallback_response)
 
 
 class ResumeParserService:
@@ -637,17 +612,17 @@ class TranscriptionService:
         print(f"[DEBUG] TranscriptionService: Twilio Auth Token set: {'YES' if os.getenv('TWILIO_AUTH_TOKEN') else 'NO'}")
         
         try:
-            self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             print(f"[DEBUG] TranscriptionService: OpenAI client initialized successfully")
         except Exception as e:
             print(f"[ERROR] TranscriptionService: Failed to initialize OpenAI client: {str(e)}")
             raise
         
         try:
-            self.twilio_client = Client(
-                os.getenv('TWILIO_ACCOUNT_SID'),
-                os.getenv('TWILIO_AUTH_TOKEN')
-            )
+        self.twilio_client = Client(
+            os.getenv('TWILIO_ACCOUNT_SID'),
+            os.getenv('TWILIO_AUTH_TOKEN')
+        )
             print(f"[DEBUG] TranscriptionService: Twilio client initialized successfully")
         except Exception as e:
             print(f"[ERROR] TranscriptionService: Failed to initialize Twilio client: {str(e)}")
@@ -698,7 +673,7 @@ class TranscriptionService:
                         waited += wait_interval
                         
                         try:
-                            recording = self.twilio_client.recordings(recording_sid).fetch()
+                    recording = self.twilio_client.recordings(recording_sid).fetch()
                             recording_status = getattr(recording, 'status', '')
                             print(f"[DEBUG] TranscriptionService: Recording status after {waited}s: {recording_status}")
                         except Exception as e:
@@ -717,9 +692,7 @@ class TranscriptionService:
             # Get the media URL
             media_url = None
             if hasattr(recording, 'uri') and recording.uri:
-                # Fix: Remove .json and add .mp3 correctly
-                base_uri = recording.uri.replace('.json', '')
-                media_url = f"https://api.twilio.com{base_uri}.mp3"
+                media_url = f"https://api.twilio.com{recording.uri}.mp3"
                 print(f"[DEBUG] TranscriptionService: Using URI-based media URL: {media_url}")
             elif hasattr(recording, 'media_location') and recording.media_location:
                 media_url = recording.media_location
@@ -755,22 +728,22 @@ class TranscriptionService:
             for attempt in range(max_retries):
                 try:
                     print(f"[DEBUG] TranscriptionService: Starting audio download (attempt {attempt + 1}/{max_retries})...")
-                    response = requests.get(
-                        media_url,
-                        auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN')),
+                            response = requests.get(
+                                media_url,
+                                auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN')),
                         timeout=60
-                    )
+                            )
                     
                     print(f"[DEBUG] TranscriptionService: Download response status: {response.status_code}")
                     print(f"[DEBUG] TranscriptionService: Download response headers: {dict(response.headers)}")
                     
-                    if response.status_code == 200:
-                        audio_data = response.content
+                            if response.status_code == 200:
+                                audio_data = response.content
                         print(f"[DEBUG] TranscriptionService: Downloaded audio successfully")
                         print(f"[DEBUG] TranscriptionService: Audio size: {len(audio_data)} bytes")
                         print(f"[DEBUG] TranscriptionService: Audio content type: {response.headers.get('content-type', 'unknown')}")
                         logger.info(f"TranscriptionService: Downloaded audio, size: {len(audio_data)} bytes")
-                        break
+                                break
                     elif response.status_code == 404:
                         print(f"[WARNING] TranscriptionService: Audio file not found (404) on attempt {attempt + 1}")
                         if attempt < max_retries - 1:
@@ -782,7 +755,7 @@ class TranscriptionService:
                         else:
                             print(f"[ERROR] TranscriptionService: Audio file still not available after {max_retries} attempts")
                             raise Exception(f"Audio file not available after {max_retries} attempts (HTTP 404)")
-                    else:
+                            else:
                         print(f"[ERROR] TranscriptionService: Download failed with status {response.status_code}")
                         print(f"[ERROR] TranscriptionService: Response content: {response.text[:500]}")
                         raise Exception(f"Failed to download audio: HTTP {response.status_code}")
@@ -803,18 +776,18 @@ class TranscriptionService:
             # Transcribe using OpenAI Whisper
             try:
                 print(f"[DEBUG] TranscriptionService: Starting OpenAI transcription...")
-                transcript = self.openai_client.audio.transcriptions.create(
-                    model="whisper-1",
+                        transcript = self.openai_client.audio.transcriptions.create(
+                            model="whisper-1",
                     file=("audio.mp3", audio_data, "audio/mpeg"),
-                    response_format="text"
-                )
-                
-                result = transcript.strip()
+                            response_format="text"
+                        )
+                        
+                        result = transcript.strip()
                 print(f"[DEBUG] TranscriptionService: Transcription successful: {result[:100]}...")
                 logger.info(f"TranscriptionService: Transcription successful: {result[:100]}...")
-                return result
-                
-            except Exception as e:
+                        return result
+                        
+                    except Exception as e:
                 print(f"[ERROR] TranscriptionService: OpenAI transcription failed: {str(e)}")
                 logger.error(f"TranscriptionService: OpenAI transcription failed: {str(e)}", exc_info=True)
                 raise Exception(f"OpenAI transcription failed: {str(e)}")
