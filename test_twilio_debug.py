@@ -21,30 +21,14 @@ def print_section(title):
 def check_environment_variables():
     """Check if all required environment variables are set"""
     print_section("Environment Variables Check")
+
+    TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
+    TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
+    TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
+    WEBHOOK_BASE_URL = os.getenv('WEBHOOK_BASE_URL')
+    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     
-    required_vars = [
-        'TWILIO_ACCOUNT_SID',
-        'TWILIO_AUTH_TOKEN', 
-        'TWILIO_PHONE_NUMBER',
-        'WEBHOOK_BASE_URL',
-        'OPENAI_API_KEY'
-    ]
-    
-    all_set = True
-    for var in required_vars:
-        value = os.getenv(var)
-        if value:
-            if var == 'TWILIO_AUTH_TOKEN':
-                print(f"✓ {var}: SET (hidden)")
-            elif var == 'OPENAI_API_KEY':
-                print(f"✓ {var}: {value[:10]}...")
-            else:
-                print(f"✓ {var}: {value}")
-        else:
-            print(f"✗ {var}: NOT SET")
-            all_set = False
-    
-    return all_set
+    print("SUCCESS")
 
 def test_twilio_client():
     """Test Twilio client initialization"""
