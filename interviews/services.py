@@ -341,7 +341,7 @@ class OpenAIService:
 
 
 class TwilioService:
-    """Service for Twilio voice call integration"""
+    """Service for Twilio voice call integration with proper interview flow"""
 
     def __init__(self):
         self.account_sid = os.getenv("TWILIO_ACCOUNT_SID")
@@ -388,15 +388,16 @@ class TwilioService:
                 logger.error(f"[TwilioService] Phone number {candidate_phone} is not whitelisted")
                 raise ValueError(f"Phone number {candidate_phone} is not whitelisted")
 
-            # Generate TwiML
-            twiml = self._create_interview_twiml(interview_id, question_number=1, questions=questions)
-            logger.debug(f"[TwilioService] Generated TwiML preview: {twiml[:200]}...")
-
             # Get webhook base URL
             webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://localhost:8000")
             if not webhook_base_url.endswith("/"):
                 webhook_base_url += "/"
 
+            # Generate initial TwiML for the first question
+            twiml = self._create_interview_twiml(interview_id, question_number=1, questions=questions)
+            logger.debug(f"[TwilioService] Generated TwiML preview: {twiml[:200]}...")
+
+            # Set up status callback
             status_callback_url = f"{webhook_base_url}api/webhooks/call-status/"
 
             if "localhost" in webhook_base_url:
@@ -409,7 +410,8 @@ class TwilioService:
                 from_=self.phone_number,
                 record=True,
                 status_callback=status_callback_url,
-                status_callback_event=["completed"],
+                status_callback_event=["completed", "failed", "busy", "no-answer"],
+                status_callback_method="POST",
             )
 
             logger.info(f"[TwilioService] Call initiated successfully, SID={call.sid}")
@@ -420,37 +422,117 @@ class TwilioService:
             raise
 
     def _create_interview_twiml(self, interview_id, question_number, questions):
-        """Generate TwiML to ask the first question and record the answer"""
+        """Generate TwiML for the interview flow"""
         response = VoiceResponse()
-
-        if question_number == 1 and questions:
-            question_text = questions[0]
-            response.say("Hello! Welcome to your automated interview. Let's begin.")
-            response.pause(length=1)
-            response.say(f"Question: {question_text}")
-            response.pause(length=1)
-            response.say("Please provide your answer now.")
-
-            # Webhook for recording
+        
+        try:
+            # Get webhook base URL
             webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://localhost:8000")
             if not webhook_base_url.endswith("/"):
                 webhook_base_url += "/"
 
-            record_action_url = f"{webhook_base_url}api/webhooks/record-response/?interview_id={interview_id}&question_id=1"
+            if question_number == 1:
+                # Welcome message for first question
+                response.say("Hello! Welcome to your automated interview. I'll be asking you a few questions today.")
+                response.pause(length=1)
+                response.say("Please take your time to think about each question before answering.")
+                response.pause(length=1)
+                response.say("Let's begin with the first question.")
+                response.pause(length=1)
 
-            response.record(
-                max_length=120,
-                play_beep=True,
-                action=record_action_url,
-                method="POST",
-                timeout=10,
-                transcribe=False,
-            )
-        else:
-            response.say("Thank you for completing the interview. Goodbye!")
+            # Ask the current question
+            if question_number <= len(questions):
+                question_text = questions[question_number - 1]
+                response.say(f"Question {question_number}: {question_text}")
+                response.pause(length=1)
+                response.say("Please provide your answer now.")
+
+                # Set up recording with webhook
+                record_action_url = f"{webhook_base_url}api/webhooks/record-response/"
+                
+                response.record(
+                    max_length=180,  # 3 minutes max
+                    play_beep=True,
+                    action=record_action_url,
+                    method="POST",
+                    timeout=15,  # Wait 15 seconds for answer
+                    transcribe=False,
+                    trim="trim-silence",
+                    recording_status_callback=f"{webhook_base_url}api/webhooks/recording-status/",
+                    recording_status_callback_method="POST",
+                    recording_status_callback_event=["completed"],
+                    action_on_empty_result="true",
+                    # Pass custom parameters to the webhook
+                    action_url=f"{record_action_url}?interview_id={interview_id}&question_number={question_number}"
+                )
+            else:
+                # Interview completed
+                response.say("Thank you for completing all the interview questions.")
+                response.pause(length=1)
+                response.say("Your responses have been recorded and will be reviewed.")
+                response.pause(length=1)
+                response.say("Goodbye and good luck!")
+                response.hangup()
+
+            return str(response)
+            
+        except Exception as e:
+            logger.error(f"[TwilioService] Error creating TwiML: {e}", exc_info=True)
+            # Fallback response
+            response.say("We're experiencing technical difficulties. Please try again later.")
             response.hangup()
+            return str(response)
 
+    def create_next_question_twiml(self, interview_id, question_number, questions):
+        """Generate TwiML for the next question in the sequence"""
+        return self._create_interview_twiml(interview_id, question_number, questions)
+
+    def create_completion_twiml(self):
+        """Generate TwiML for interview completion"""
+        response = VoiceResponse()
+        response.say("Thank you for completing the interview. Your responses have been recorded and will be reviewed.")
+        response.pause(length=1)
+        response.say("Goodbye and good luck!")
+        response.hangup()
         return str(response)
+
+    def get_call_status(self, call_sid):
+        """Get the status of a Twilio call"""
+        try:
+            call = self.client.calls(call_sid).fetch()
+            return {
+                'sid': call.sid,
+                'status': call.status,
+                'duration': call.duration,
+                'start_time': call.start_time,
+                'end_time': call.end_time,
+                'error_code': getattr(call, 'error_code', None),
+                'error_message': getattr(call, 'error_message', None)
+            }
+        except Exception as e:
+            logger.error(f"[TwilioService] Error getting call status: {e}", exc_info=True)
+            raise
+
+    def get_recording_url(self, recording_sid):
+        """Get the media URL for a recording"""
+        try:
+            recording = self.client.recordings(recording_sid).fetch()
+            
+            # Get the media URL
+            if hasattr(recording, 'uri') and recording.uri:
+                base_uri = recording.uri.replace('.json', '')
+                media_url = f"https://api.twilio.com{base_uri}.mp3"
+            elif hasattr(recording, 'media_location') and recording.media_location:
+                media_url = recording.media_location
+            else:
+                raise ValueError("No media URL found for recording")
+            
+            return media_url
+        except Exception as e:
+            logger.error(f"[TwilioService] Error getting recording URL: {e}", exc_info=True)
+            raise
+
+
 class ResumeParserService:
     """Service for parsing resume files"""
     
