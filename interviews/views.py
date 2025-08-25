@@ -47,67 +47,73 @@ class JDToQuestionsView(APIView):
     def post(self, request):
         logger.info("JDToQuestionsView: Processing job description to questions request")
         serializer = JDToQuestionsSerializer(data=request.data)
-        if serializer.is_valid():
-            title = serializer.validated_data["title"]
-            description = serializer.validated_data["description"]
-            logger.info(f"JDToQuestionsView: Processing job title: {title}")
 
-            # Check if JD already exists (duplicate)
-            existing_jd = JobDescription.objects.filter(
-                Q(title=title) & Q(description=description)
-            ).first()
+        if not serializer.is_valid():
+            logger.warning(f"JDToQuestionsView: Invalid serializer data: {serializer.errors}")
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            if existing_jd:
-                logger.info(f"JDToQuestionsView: Found existing job description with ID: {existing_jd.id}")
-                return Response(
-                    {
-                        "id": existing_jd.id,
-                        "title": existing_jd.title,
-                        "questions": existing_jd.questions,
-                        "message": "Job description already exists"
-                    },
-                    status=status.HTTP_200_OK
-                )
+        title = serializer.validated_data["title"]
+        description = serializer.validated_data["description"]
+        logger.info(f"JDToQuestionsView: Processing job title: {title}")
 
-            # Object does not exist, create new
-            logger.info("JDToQuestionsView: Generating new questions from job description")
-            openai_service = OpenAIService()
-            try:
-                questions = openai_service.generate_questions_from_jd(title, description)
-                logger.info(f"JDToQuestionsView: Generated {len(questions)} questions successfully")
-            except Exception as e:
-                logger.error(f"JDToQuestionsView: Failed to generate questions: {str(e)}", exc_info=True)
-                return Response(
-                    {"error": f"Failed to generate questions: {e}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
+        # Check if JD already exists (case-insensitive match)
+        existing_jd = JobDescription.objects.filter(
+            Q(title__iexact=title) & Q(description__iexact=description)
+        ).first()
 
-            try:
+        if existing_jd:
+            logger.info(f"JDToQuestionsView: Found existing JD ID: {existing_jd.id}")
+            return Response(
+                {
+                    "id": existing_jd.id,
+                    "title": existing_jd.title,
+                    "questions": existing_jd.questions,
+                    "message": "Job description already exists",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # Generate new questions
+        logger.info("JDToQuestionsView: Generating new questions via OpenAIService")
+        openai_service = OpenAIService()
+
+        try:
+            questions = openai_service.generate_questions_from_jd(title, description)
+            logger.info(f"JDToQuestionsView: Generated {len(questions)} questions successfully")
+        except Exception as e:
+            logger.error(f"JDToQuestionsView: Failed to generate questions", exc_info=True)
+            return Response(
+                {"error": "Failed to generate interview questions. Please try again later."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Save JD with atomic safety
+        try:
+            with transaction.atomic():
                 jd = JobDescription.objects.create(
                     title=title,
                     description=description,
-                    questions=questions
+                    questions=questions,
                 )
-                logger.info(f"JDToQuestionsView: Created job description with ID: {jd.id}")
-            except Exception as e:
-                logger.error(f"JDToQuestionsView: Failed to create job description: {str(e)}", exc_info=True)
-                return Response(
-                    {"error": f"Failed to save job description: {e}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-
+                logger.info(f"JDToQuestionsView: Created JD with ID: {jd.id}")
+        except Exception as e:
+            logger.error(f"JDToQuestionsView: Failed to save JD", exc_info=True)
             return Response(
-                {
-                    "id": jd.id,
-                    "title": jd.title,
-                    "questions": jd.questions,
-                    "message": "Job description created successfully"
-                },
-                status=status.HTTP_201_CREATED
+                {"error": "Failed to save job description. Please try again later."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        logger.warning(f"JDToQuestionsView: Invalid serializer data: {serializer.errors}")
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "id": jd.id,
+                "title": jd.title,
+                "questions": jd.questions,
+                "message": "Job description created successfully",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class UploadResumeView(BaseAPIView):
     """Upload and parse resume"""
     
@@ -148,8 +154,8 @@ class CreateCandidateView(BaseAPIView):
             try:
                 candidate = serializer.save()
                 logger.info(f"CreateCandidateView: Created candidate with ID: {candidate.id}")
-                
-                # Parse resume if provided
+            
+            # Parse resume if provided
                 if candidate.resume:
                     logger.info(f"CreateCandidateView: Parsing resume for candidate {candidate.id}")
                     parser_service = ResumeParserService()
@@ -160,7 +166,7 @@ class CreateCandidateView(BaseAPIView):
                     except Exception as e:
                         logger.error(f"CreateCandidateView: Failed to parse resume for candidate {candidate.id}: {str(e)}", exc_info=True)
                         # Continue without resume text
-                
+            
                 return Response(CandidateSerializer(candidate).data, status=status.HTTP_201_CREATED)
             except Exception as e:
                 logger.error(f"CreateCandidateView: Failed to create candidate: {str(e)}", exc_info=True)
@@ -611,159 +617,94 @@ class TwilioWebhookView(View):
 
     def post(self, request, *args, **kwargs):
         print(f"[DEBUG] TwilioWebhookView: Received webhook request")
-        print(f"[DEBUG] TwilioWebhookView: Method: {request.method}")
-        print(f"[DEBUG] TwilioWebhookView: URL: {request.path}")
-        print(f"[DEBUG] TwilioWebhookView: Headers: {dict(request.headers)}")
-        print(f"[DEBUG] TwilioWebhookView: POST data: {dict(request.POST)}")
-        print(f"[DEBUG] TwilioWebhookView: GET data: {dict(request.GET)}")
-        
-        logger.info(f"TwilioWebhookView: Received webhook - Method: {request.method}, Path: {request.path}")
-        
+        print(f"[DEBUG] Method: {request.method}, URL: {request.path}")
+        print(f"[DEBUG] Headers: {dict(request.headers)}")
+        print(f"[DEBUG] POST data: {dict(request.POST)}")
+        print(f"[DEBUG] GET data: {dict(request.GET)}")
+        print(f"[DEBUG] Body: {request.body.decode('utf-8') if request.body else 'No body'}")
+
+        post_data = dict(request.POST)
+        for key, value in post_data.items():
+            print(f"[DEBUG] POST {key}: {value}")
+
         try:
             webhook_type = kwargs.get('webhook_type')
-            print(f"[DEBUG] TwilioWebhookView: Webhook type: {webhook_type}")
-            
+            call_status = post_data.get('CallStatus')
+            recording_status = post_data.get('RecordingStatus')
+
+            if not webhook_type:
+                if call_status:
+                    webhook_type = 'call-status'
+                elif recording_status:
+                    webhook_type = 'record-response'
+                else:
+                    webhook_type = 'unknown'
+
             if webhook_type == 'call-status':
-                print(f"[DEBUG] TwilioWebhookView: Handling call status webhook")
                 return self.handle_call_status(request)
             elif webhook_type == 'record-response':
-                print(f"[DEBUG] TwilioWebhookView: Handling record response webhook")
                 return self.handle_record_response(request)
             else:
-                print(f"[ERROR] TwilioWebhookView: Invalid webhook type: {webhook_type}")
-                logger.error(f"TwilioWebhookView: Invalid webhook type: {webhook_type}")
                 return HttpResponse("Invalid webhook type", status=400)
+
         except Exception as e:
-            print(f"[ERROR] TwilioWebhookView: Unhandled exception in webhook: {str(e)}")
-            import traceback
-            print(f"[ERROR] TwilioWebhookView: Traceback: {traceback.format_exc()}")
-            logger.error(f"TwilioWebhookView: Unhandled exception in webhook: {str(e)}", exc_info=True)
+            logger.error(f"Webhook error: {str(e)}", exc_info=True)
             return HttpResponse("Internal server error", status=500)
 
     def handle_call_status(self, request):
         """Handle call status webhook"""
-        print(f"[DEBUG] TwilioWebhookView: Handling call status webhook")
-        
         call_sid = request.POST.get('CallSid')
         call_status = request.POST.get('CallStatus')
         recording_url = request.POST.get('RecordingUrl')
         recording_sid = request.POST.get('RecordingSid')
         call_duration = request.POST.get('CallDuration')
 
-        print(f"[DEBUG] TwilioWebhookView: Call SID: {call_sid}")
-        print(f"[DEBUG] TwilioWebhookView: Call Status: {call_status}")
-        print(f"[DEBUG] TwilioWebhookView: Recording URL: {recording_url}")
-        print(f"[DEBUG] TwilioWebhookView: Recording SID: {recording_sid}")
-        print(f"[DEBUG] TwilioWebhookView: Call Duration: {call_duration}")
-
-        logger.info(f"TwilioWebhookView: Call status update - SID: {call_sid}, Status: {call_status}, Recording: {recording_url}")
-
         try:
-            print(f"[DEBUG] TwilioWebhookView: Looking for interview with call SID: {call_sid}")
             interview = Interview.objects.get(twilio_call_sid=call_sid)
-            print(f"[DEBUG] TwilioWebhookView: Found interview {interview.id}")
-            logger.info(f"TwilioWebhookView: Found interview {interview.id} for call SID {call_sid}")
 
             if call_status == 'completed':
-                print(f"[DEBUG] TwilioWebhookView: Call completed, checking for single question response")
-                # Check if the single question has been answered
                 answered_questions = InterviewResponse.objects.filter(interview=interview).count()
-                
-                print(f"[DEBUG] TwilioWebhookView: Answered questions: {answered_questions}")
-                
-                logger.info(f"TwilioWebhookView: Interview {interview.id} completed - Questions answered: {answered_questions}")
-                
                 if answered_questions >= 1:
-                    print(f"[DEBUG] TwilioWebhookView: Question answered, marking as completed")
                     interview.status = 'completed'
                     interview.audio_url = recording_url
                     interview.twilio_recording_sid = recording_sid
                     interview.duration = int(call_duration) if call_duration else None
                     interview.completed_at = timezone.now()
                     interview.save()
-
-                    logger.info(f"TwilioWebhookView: Interview {interview.id} marked as completed")
-
-                    # Generate final results if not already generated
-                    try:
-                        print(f"[DEBUG] TwilioWebhookView: Generating final results")
-                        self.generate_final_results(interview)
-                        logger.info(f"TwilioWebhookView: Generated final results for interview {interview.id}")
-                    except Exception as e:
-                        print(f"[ERROR] TwilioWebhookView: Failed to generate final results: {str(e)}")
-                        logger.error(f"TwilioWebhookView: Failed to generate final results for interview {interview.id}: {str(e)}", exc_info=True)
+                    self.generate_final_results(interview)
                 else:
-                    print(f"[DEBUG] TwilioWebhookView: No question answered, marking as failed")
-                    logger.warning(f"TwilioWebhookView: Interview {interview.id} incomplete - no questions answered")
                     interview.status = 'failed'
                     interview.completed_at = timezone.now()
                     interview.save()
-            elif call_status == 'failed' or call_status == 'busy' or call_status == 'no-answer':
-                print(f"[DEBUG] TwilioWebhookView: Call {call_status}, marking interview as failed")
-                logger.warning(f"TwilioWebhookView: Interview {interview.id} failed - call status: {call_status}")
+            elif call_status in ['failed', 'busy', 'no-answer']:
                 interview.status = 'failed'
                 interview.completed_at = timezone.now()
                 interview.save()
-            elif call_status == 'in-progress':
-                # Check if call has been in progress too long (timeout)
-                from datetime import timedelta
-                if interview.created_at and (timezone.now() - interview.created_at) > timedelta(minutes=15):
-                    print(f"[DEBUG] TwilioWebhookView: Call timeout, marking interview as failed")
-                    logger.warning(f"TwilioWebhookView: Interview {interview.id} timeout - call in progress too long")
-                    interview.status = 'failed'
-                    interview.completed_at = timezone.now()
-                    interview.save()
 
-            print(f"[DEBUG] TwilioWebhookView: Returning 200 OK")
             return HttpResponse(status=200)
+
         except Interview.DoesNotExist:
-            print(f"[ERROR] TwilioWebhookView: Interview with SID {call_sid} not found")
-            logger.error(f"TwilioWebhookView: Interview with SID {call_sid} not found")
             return HttpResponse(status=404)
         except Exception as e:
-            print(f"[ERROR] TwilioWebhookView: Error handling call status: {str(e)}")
-            import traceback
-            print(f"[ERROR] TwilioWebhookView: Traceback: {traceback.format_exc()}")
-            logger.error(f"TwilioWebhookView: Error handling call status: {str(e)}", exc_info=True)
+            logger.error(f"Call status error: {str(e)}", exc_info=True)
             return HttpResponse(status=500)
 
     def handle_record_response(self, request):
         """Handle recorded response and return next question"""
-        print(f"[DEBUG] TwilioWebhookView: Handling record response webhook")
-        
-        interview_id = request.GET.get('interview_id')
-        question_number = int(request.GET.get('question_number', 1))
-
-        print(f"[DEBUG] TwilioWebhookView: Interview ID: {interview_id}")
-        print(f"[DEBUG] TwilioWebhookView: Question number: {question_number}")
-
-        logger.info(f"TwilioWebhookView: Processing recorded response - Interview: {interview_id}, Question: {question_number}")
-
         try:
-            print(f"[DEBUG] TwilioWebhookView: Looking for interview with ID: {interview_id}")
+            interview_id = request.GET.get('interview_id')
+            question_number = int(request.GET.get('question_number', 1))
+
             interview = get_object_or_404(Interview, id=interview_id)
             questions = interview.job_description.questions
-            print(f"[DEBUG] TwilioWebhookView: Found interview with {len(questions)} questions")
-            logger.info(f"TwilioWebhookView: Found interview {interview_id} with {len(questions)} questions")
 
-            # Save current recording
             recording_url = request.POST.get('RecordingUrl')
             recording_sid = request.POST.get('RecordingSid')
-            print(f"[DEBUG] TwilioWebhookView: Recording URL: {recording_url}")
-            print(f"[DEBUG] TwilioWebhookView: Recording SID: {recording_sid}")
-            
-            # Log all recording-related data
-            print(f"[DEBUG] TwilioWebhookView: All recording data from request:")
-            for key, value in request.POST.items():
-                if 'recording' in key.lower() or 'audio' in key.lower():
-                    print(f"[DEBUG] TwilioWebhookView: {key}: {value}")
-            
+
             if question_number <= len(questions):
                 question_text = questions[question_number - 1]
             else:
                 question_text = f"Question {question_number}"
-            
-            print(f"[DEBUG] TwilioWebhookView: Question text: {question_text}")
 
             response_obj, created = InterviewResponse.objects.get_or_create(
                 interview=interview,
@@ -772,29 +713,20 @@ class TwilioWebhookView(View):
             )
             response_obj.audio_url = recording_url
             response_obj.save()
-            print(f"[DEBUG] TwilioWebhookView: Saved response object, created: {created}")
-            print(f"[DEBUG] TwilioWebhookView: Response object ID: {response_obj.id}")
-            print(f"[DEBUG] TwilioWebhookView: Audio URL saved: {response_obj.audio_url}")
-            logger.info(f"TwilioWebhookView: Saved response for Q{question_number}, URL: {recording_url}, SID: {recording_sid}")
 
-            # Transcribe the audio recording
+            # Transcription
             try:
-                print(f"[DEBUG] TwilioWebhookView: Starting transcription")
                 transcription_service = TranscriptionService()
                 transcript = transcription_service.transcribe_audio(recording_url)
                 response_obj.transcript = transcript
                 response_obj.save()
-                print(f"[DEBUG] TwilioWebhookView: Transcription completed: {transcript[:100]}...")
-                logger.info(f"TwilioWebhookView: Transcribed Q{question_number}: {transcript[:100]}...")
             except Exception as e:
-                print(f"[ERROR] TwilioWebhookView: Transcription error: {str(e)}")
-                logger.error(f"TwilioWebhookView: Transcription error for Q{question_number}: {str(e)}", exc_info=True)
+                logger.error(f"Transcription error: {str(e)}", exc_info=True)
                 response_obj.transcript = "Unable to transcribe audio"
                 response_obj.save()
 
-            # Analyze response with actual transcript
+            # Analysis
             try:
-                print(f"[DEBUG] TwilioWebhookView: Starting response analysis")
                 openai_service = OpenAIService()
                 score, feedback = openai_service.analyze_response(
                     question_text,
@@ -804,52 +736,29 @@ class TwilioWebhookView(View):
                 response_obj.score = score
                 response_obj.feedback = feedback
                 response_obj.save()
-                print(f"[DEBUG] TwilioWebhookView: Analysis completed, score: {score}")
-                logger.info(f"TwilioWebhookView: Analyzed response Q{question_number} - Score: {score}")
             except Exception as e:
-                print(f"[ERROR] TwilioWebhookView: Analysis error: {str(e)}")
-                logger.error(f"TwilioWebhookView: Analysis error for Q{question_number}: {str(e)}", exc_info=True)
+                logger.error(f"Analysis error: {str(e)}", exc_info=True)
 
-            # Since we only ask 1 question, end the call here
-            print(f"[DEBUG] TwilioWebhookView: Interview completed with 1 question, ending call")
-            logger.info(f"TwilioWebhookView: Interview {interview_id} completed with 1 question")
-            
-            # Mark interview as completed
+            # Mark interview completed
             interview.status = 'completed'
             interview.completed_at = timezone.now()
             interview.save()
-            print(f"[DEBUG] TwilioWebhookView: Marked interview {interview_id} as completed")
-            
-            # Generate final results
-            try:
-                print(f"[DEBUG] TwilioWebhookView: Generating final results")
-                self.generate_final_results(interview)
-                print(f"[DEBUG] TwilioWebhookView: Final results generated successfully")
-            except Exception as e:
-                print(f"[ERROR] TwilioWebhookView: Error generating final results: {str(e)}")
-                logger.error(f"TwilioWebhookView: Error generating final results: {str(e)}", exc_info=True)
-            
-            # Return TwiML to end the call
+            self.generate_final_results(interview)
+
+            # End call
             response = VoiceResponse()
             response.say("Thank you for completing the interview. We will review your response and get back to you soon. Goodbye!")
             response.hangup()
-            
-            twiml = str(response)
-            print(f"[DEBUG] TwilioWebhookView: Generated end call TwiML")
-            return HttpResponse(twiml, content_type='text/xml')
+            return HttpResponse(str(response), content_type='text/xml')
+
         except Exception as e:
-            print(f"[ERROR] TwilioWebhookView: Error handling recorded response: {str(e)}")
-            import traceback
-            print(f"[ERROR] TwilioWebhookView: Traceback: {traceback.format_exc()}")
-            logger.error(f"TwilioWebhookView: Error handling recorded response: {str(e)}", exc_info=True)
+            logger.error(f"Record response error: {str(e)}", exc_info=True)
             return HttpResponse("Error processing response", status=500)
 
     def generate_final_results(self, interview):
         """Generate final interview results after all questions are done"""
-        logger.info(f"TwilioWebhookView: Generating final results for interview {interview.id}")
         responses = InterviewResponse.objects.filter(interview=interview).order_by('question_number')
         if not responses.exists():
-            logger.warning(f"TwilioWebhookView: No responses found for interview {interview.id}")
             return
 
         try:
@@ -858,7 +767,6 @@ class TwilioWebhookView(View):
                 responses,
                 interview.candidate.resume_text
             )
-
             InterviewResult.objects.create(
                 interview=interview,
                 overall_score=result_data.get('overall_score', 5.0),
@@ -866,6 +774,287 @@ class TwilioWebhookView(View):
                 strengths=result_data.get('strengths', []),
                 areas_for_improvement=result_data.get('areas_for_improvement', [])
             )
-            logger.info(f"TwilioWebhookView: Generated final results for interview {interview.id} - Score: {result_data.get('overall_score', 5.0)}, Recommendation: {result_data.get('recommendation', 'Consider')}")
         except Exception as e:
-            logger.error(f"TwilioWebhookView: Error generating final results for interview {interview.id}: {str(e)}", exc_info=True)
+            logger.error(f"Final results error: {str(e)}", exc_info=True)
+class TwilioRecordingsListView(APIView):
+    """API to list all available Twilio recordings"""
+    
+    def get(self, request):
+        """Get all Twilio recordings with detailed information"""
+        try:
+            print(f"[DEBUG] TwilioRecordingsListView: Starting to fetch all Twilio recordings")
+            logger.info("TwilioRecordingsListView: Starting to fetch all Twilio recordings")
+            
+            # Initialize Twilio client
+            try:
+                from twilio.rest import Client
+                twilio_client = Client(
+                    os.getenv('TWILIO_ACCOUNT_SID'),
+                    os.getenv('TWILIO_AUTH_TOKEN')
+                )
+                print(f"[DEBUG] TwilioRecordingsListView: Twilio client initialized successfully")
+            except Exception as e:
+                print(f"[ERROR] TwilioRecordingsListView: Failed to initialize Twilio client: {str(e)}")
+                logger.error(f"TwilioRecordingsListView: Failed to initialize Twilio client: {str(e)}", exc_info=True)
+                return Response({
+                    'error': 'Failed to initialize Twilio client',
+                    'details': str(e)
+                }, status=500)
+            
+            # Get query parameters for filtering
+            limit = request.GET.get('limit', 50)
+            status = request.GET.get('status', None)
+            date_created_after = request.GET.get('date_created_after', None)
+            date_created_before = request.GET.get('date_created_before', None)
+            
+            print(f"[DEBUG] TwilioRecordingsListView: Query parameters:")
+            print(f"[DEBUG] TwilioRecordingsListView:   Limit: {limit}")
+            print(f"[DEBUG] TwilioRecordingsListView:   Status: {status}")
+            print(f"[DEBUG] TwilioRecordingsListView:   Date created after: {date_created_after}")
+            print(f"[DEBUG] TwilioRecordingsListView:   Date created before: {date_created_before}")
+            
+            # Build list parameters
+            list_params = {
+                'limit': int(limit)
+            }
+            
+            if status:
+                list_params['status'] = status
+            if date_created_after:
+                list_params['date_created_after'] = date_created_after
+            if date_created_before:
+                list_params['date_created_before'] = date_created_before
+            
+            print(f"[DEBUG] TwilioRecordingsListView: List parameters: {list_params}")
+            
+            # Fetch recordings from Twilio
+            try:
+                print(f"[DEBUG] TwilioRecordingsListView: Fetching recordings from Twilio API...")
+                recordings = twilio_client.recordings.list(**list_params)
+                print(f"[DEBUG] TwilioRecordingsListView: Successfully fetched {len(recordings)} recordings")
+                logger.info(f"TwilioRecordingsListView: Successfully fetched {len(recordings)} recordings")
+            except Exception as e:
+                print(f"[ERROR] TwilioRecordingsListView: Failed to fetch recordings: {str(e)}")
+                logger.error(f"TwilioRecordingsListView: Failed to fetch recordings: {str(e)}", exc_info=True)
+                return Response({
+                    'error': 'Failed to fetch recordings from Twilio',
+                    'details': str(e)
+                }, status=500)
+            
+            # Process recordings
+            recordings_data = []
+            for i, recording in enumerate(recordings):
+                try:
+                    print(f"[DEBUG] TwilioRecordingsListView: Processing recording {i+1}/{len(recordings)}: {recording.sid}")
+                    
+                    # Get media URL
+                    media_url = None
+                    if hasattr(recording, 'uri') and recording.uri:
+                        media_url = f"https://api.twilio.com{recording.uri}.mp3"
+                    elif hasattr(recording, 'media_location') and recording.media_location:
+                        media_url = recording.media_location
+                    
+                    # Test media URL accessibility
+                    media_accessible = False
+                    media_status_code = None
+                    if media_url:
+                        try:
+                            import requests
+                            test_response = requests.head(
+                                media_url,
+                                auth=(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN')),
+                                timeout=10
+                            )
+                            media_status_code = test_response.status_code
+                            media_accessible = test_response.status_code == 200
+                            print(f"[DEBUG] TwilioRecordingsListView: Media URL test for {recording.sid}: {media_status_code}")
+                        except Exception as e:
+                            print(f"[WARNING] TwilioRecordingsListView: Could not test media URL for {recording.sid}: {str(e)}")
+                    
+                    recording_info = {
+                        'sid': recording.sid,
+                        'account_sid': getattr(recording, 'account_sid', None),
+                        'call_sid': getattr(recording, 'call_sid', None),
+                        'duration': getattr(recording, 'duration', None),
+                        'status': getattr(recording, 'status', None),
+                        'channels': getattr(recording, 'channels', None),
+                        'source': getattr(recording, 'source', None),
+                        'error_code': getattr(recording, 'error_code', None),
+                        'uri': getattr(recording, 'uri', None),
+                        'media_location': getattr(recording, 'media_location', None),
+                        'media_url': media_url,
+                        'media_accessible': media_accessible,
+                        'media_status_code': media_status_code,
+                        'date_created': getattr(recording, 'date_created', None),
+                        'date_updated': getattr(recording, 'date_updated', None),
+                        'start_time': getattr(recording, 'start_time', None),
+                        'price': getattr(recording, 'price', None),
+                        'price_unit': getattr(recording, 'price_unit', None),
+                        'track': getattr(recording, 'track', None),
+                    }
+                    
+                    recordings_data.append(recording_info)
+                    print(f"[DEBUG] TwilioRecordingsListView: Successfully processed recording {recording.sid}")
+                    
+                except Exception as e:
+                    print(f"[ERROR] TwilioRecordingsListView: Error processing recording {i+1}: {str(e)}")
+                    logger.error(f"TwilioRecordingsListView: Error processing recording {i+1}: {str(e)}", exc_info=True)
+                    # Continue with other recordings
+                    continue
+            
+            # Prepare response
+            response_data = {
+                'total_recordings': len(recordings_data),
+                'query_parameters': {
+                    'limit': limit,
+                    'status': status,
+                    'date_created_after': date_created_after,
+                    'date_created_before': date_created_before
+                },
+                'recordings': recordings_data,
+                'summary': {
+                    'completed': len([r for r in recordings_data if r['status'] == 'completed']),
+                    'in_progress': len([r for r in recordings_data if r['status'] == 'in-progress']),
+                    'failed': len([r for r in recordings_data if r['status'] == 'failed']),
+                    'accessible_media': len([r for r in recordings_data if r['media_accessible']]),
+                    'inaccessible_media': len([r for r in recordings_data if not r['media_accessible'] and r['media_url']])
+                }
+            }
+            
+            print(f"[DEBUG] TwilioRecordingsListView: Response summary:")
+            print(f"[DEBUG] TwilioRecordingsListView:   Total recordings: {response_data['total_recordings']}")
+            print(f"[DEBUG] TwilioRecordingsListView:   Completed: {response_data['summary']['completed']}")
+            print(f"[DEBUG] TwilioRecordingsListView:   In progress: {response_data['summary']['in_progress']}")
+            print(f"[DEBUG] TwilioRecordingsListView:   Failed: {response_data['summary']['failed']}")
+            print(f"[DEBUG] TwilioRecordingsListView:   Accessible media: {response_data['summary']['accessible_media']}")
+            print(f"[DEBUG] TwilioRecordingsListView:   Inaccessible media: {response_data['summary']['inaccessible_media']}")
+            
+            logger.info(f"TwilioRecordingsListView: Successfully returned {len(recordings_data)} recordings")
+            return Response(response_data, status=200)
+            
+        except Exception as e:
+            print(f"[ERROR] TwilioRecordingsListView: Unexpected error: {str(e)}")
+            logger.error(f"TwilioRecordingsListView: Unexpected error: {str(e)}", exc_info=True)
+            return Response({
+                'error': 'Unexpected error occurred',
+                'details': str(e)
+            }, status=500)
+
+
+class TwilioCallDebugView(APIView):
+    """API to debug Twilio call issues"""
+    
+    def get(self, request):
+        """Get Twilio configuration and test connectivity"""
+        try:
+            print(f"[DEBUG] TwilioCallDebugView: Starting Twilio configuration check")
+            logger.info("TwilioCallDebugView: Starting Twilio configuration check")
+            
+            # Check environment variables
+            config_status = {
+                'twilio_account_sid': {
+                    'set': bool(os.getenv('TWILIO_ACCOUNT_SID')),
+                    'value': os.getenv('TWILIO_ACCOUNT_SID', 'NOT_SET')[:10] + '...' if os.getenv('TWILIO_ACCOUNT_SID') else 'NOT_SET'
+                },
+                'twilio_auth_token': {
+                    'set': bool(os.getenv('TWILIO_AUTH_TOKEN')),
+                    'value': 'SET' if os.getenv('TWILIO_AUTH_TOKEN') else 'NOT_SET'
+                },
+                'twilio_phone_number': {
+                    'set': bool(os.getenv('TWILIO_PHONE_NUMBER')),
+                    'value': os.getenv('TWILIO_PHONE_NUMBER', 'NOT_SET')
+                },
+                'webhook_base_url': {
+                    'set': bool(os.getenv('WEBHOOK_BASE_URL')),
+                    'value': os.getenv('WEBHOOK_BASE_URL', 'NOT_SET')
+                }
+            }
+            
+            print(f"[DEBUG] TwilioCallDebugView: Configuration status: {config_status}")
+            
+            # Test Twilio client initialization
+            twilio_client_status = 'unknown'
+            twilio_error = None
+            try:
+                from twilio.rest import Client
+                twilio_client = Client(
+                    os.getenv('TWILIO_ACCOUNT_SID'),
+                    os.getenv('TWILIO_AUTH_TOKEN')
+                )
+                twilio_client_status = 'success'
+                print(f"[DEBUG] TwilioCallDebugView: Twilio client initialized successfully")
+            except Exception as e:
+                twilio_client_status = 'failed'
+                twilio_error = str(e)
+                print(f"[ERROR] TwilioCallDebugView: Twilio client initialization failed: {str(e)}")
+            
+            # Test webhook URL accessibility
+            webhook_status = 'unknown'
+            webhook_error = None
+            webhook_base_url = os.getenv('WEBHOOK_BASE_URL')
+            if webhook_base_url:
+                try:
+                    import requests
+                    test_url = f"{webhook_base_url}api/webhooks/call-status/"
+                    print(f"[DEBUG] TwilioCallDebugView: Testing webhook URL: {test_url}")
+                    
+                    response = requests.get(test_url, timeout=10)
+                    webhook_status = 'accessible' if response.status_code == 200 else f'status_{response.status_code}'
+                    print(f"[DEBUG] TwilioCallDebugView: Webhook test response: {response.status_code}")
+                except Exception as e:
+                    webhook_status = 'inaccessible'
+                    webhook_error = str(e)
+                    print(f"[ERROR] TwilioCallDebugView: Webhook test failed: {str(e)}")
+            else:
+                webhook_status = 'not_configured'
+                webhook_error = 'WEBHOOK_BASE_URL not set'
+            
+            # Get recent calls for debugging
+            recent_calls = []
+            try:
+                if twilio_client_status == 'success':
+                    calls = twilio_client.calls.list(limit=5)
+                    for call in calls:
+                        recent_calls.append({
+                            'sid': call.sid,
+                            'status': call.status,
+                            'from_': call.from_,
+                            'to': call.to,
+                            'duration': call.duration,
+                            'date_created': call.date_created,
+                            'error_code': getattr(call, 'error_code', None),
+                            'error_message': getattr(call, 'error_message', None)
+                        })
+                    print(f"[DEBUG] TwilioCallDebugView: Retrieved {len(recent_calls)} recent calls")
+            except Exception as e:
+                print(f"[ERROR] TwilioCallDebugView: Failed to get recent calls: {str(e)}")
+            
+            response_data = {
+                'configuration': config_status,
+                'twilio_client': {
+                    'status': twilio_client_status,
+                    'error': twilio_error
+                },
+                'webhook': {
+                    'status': webhook_status,
+                    'error': webhook_error,
+                    'url': f"{webhook_base_url}api/webhooks/call-status/" if webhook_base_url else None
+                },
+                'recent_calls': recent_calls,
+                'debug_info': {
+                    'timestamp': timezone.now().isoformat(),
+                    'environment': os.getenv('DJANGO_SETTINGS_MODULE', 'unknown')
+                }
+            }
+            
+            print(f"[DEBUG] TwilioCallDebugView: Debug response prepared")
+            logger.info("TwilioCallDebugView: Configuration check completed")
+            return Response(response_data, status=200)
+            
+        except Exception as e:
+            print(f"[ERROR] TwilioCallDebugView: Unexpected error: {str(e)}")
+            logger.error(f"TwilioCallDebugView: Unexpected error: {str(e)}", exc_info=True)
+            return Response({
+                'error': 'Unexpected error occurred',
+                'details': str(e)
+            }, status=500)

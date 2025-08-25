@@ -16,6 +16,8 @@ urlpatterns = [
     path('interviews/<uuid:interview_id>/results/', views.GetResultsView.as_view(), name='get_results'),
     path('interviews/<uuid:interview_id>/transcribe/', views.ManualTranscriptionView.as_view(), name='manual_transcription'),
     path('interviews/<uuid:interview_id>/fix-stuck/', views.FixStuckInterviewView.as_view(), name='fix_stuck_interview'),
+    path('twilio/recordings/', views.TwilioRecordingsListView.as_view(), name='twilio_recordings_list'),
+    path('twilio/debug/', views.TwilioCallDebugView.as_view(), name='twilio_call_debug'),
     path('interviews/list/', views.ListInterviewsView.as_view(), name='list_interviews'),
     path('job-descriptions/list/', views.ListJobDescriptionsView.as_view(), name='list_job_descriptions'),
 
