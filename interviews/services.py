@@ -467,7 +467,7 @@ class TranscriptionService:
             base_uri = recording.uri.replace('.json', '')
             if not base_uri.endswith('.mp3'):
                 timeout=30
-            )
+            
             if response.status_code != 200:
                 raise Exception(f"Failed to download audio (HTTP {response.status_code})")
 
