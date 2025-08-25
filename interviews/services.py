@@ -1,5 +1,6 @@
 import os
 import requests
+import time
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 import PyPDF2
@@ -8,11 +9,8 @@ import io
 from django.conf import settings
 from .models import Interview, InterviewResponse, InterviewResult
 import json
-
-
 from openai import OpenAI
 import openai
-# Set your OpenAI API key from environment variable
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -20,13 +18,10 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
 class OpenAIService:
-    """Service for generating interview questions and analyzing responses using OpenAI v1.0+"""
-
     def __init__(self):
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # Or gpt-4
+        self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     def _make_request(self, prompt, temperature=0.7, max_tokens=500):
-        """Send prompt to OpenAI and return response text"""
         try:
             response = openai.chat.completions.create(
                 model=self.model,
@@ -36,25 +31,21 @@ class OpenAIService:
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
-            print(f"OpenAI request error: {e}")
             raise
+
     def clean_questions(self, raw_questions):
-        """Cleans a list of questions returned by AI"""
         cleaned = []
         for q in raw_questions:
-            # Skip any line that's not a real question
             if not q or q.lower() == 'json':
                 continue
-            # Remove leading/trailing whitespace and quotes
             q = q.strip().strip('"').strip("'").strip()
             if q:
                 cleaned.append(q)
         return cleaned
 
     def generate_questions_from_jd(self, job_title, job_description):
-        """Generate 5-7 interview questions from job description"""
         prompt = f"""
-        Based on the following job description, generate 5-7 relevant interview questions.
+        Based on the following job description, generate exactly 5 relevant interview questions.
 
         Job Title: {job_title}
         Job Description: {job_description}
@@ -69,7 +60,6 @@ class OpenAIService:
         Return only the questions as a JSON array of strings, no additional text.
         """
         questions_text = self._make_request(prompt, temperature=0.7, max_tokens=500)
-
         questions_text = questions_text.strip().strip("```").strip()
 
         try:
@@ -83,13 +73,10 @@ class OpenAIService:
                     if line.endswith(","):
                         line = line[:-1].strip()
                     questions.append(line)
-        res = self.clean_questions(questions[:7])
-        print(res, "QUESTIONS/n/n/n/n/n/n/n")
-        return res
+        return self.clean_questions(questions[:5])
 
 
     def analyze_response(self, question, response_text, resume_context=""):
-        """Analyze a candidate's response and provide score and feedback"""
         prompt = f"""
         Analyze this interview response and provide a score (0-10) and feedback.
 
@@ -109,15 +96,13 @@ class OpenAIService:
             result_text = self._make_request(prompt, temperature=0.3, max_tokens=300)
             try:
                 result = json.loads(result_text)
-                return result.get("score", 5.0), result.get("feedback", "No specific feedback available.")
+                return result.get("score", 5.0), result.get("feedback", "No feedback available.")
             except json.JSONDecodeError:
-                return 5.0, "Analysis completed but feedback format was unexpected."
+                return 5.0, "Analysis completed but format was unexpected."
         except Exception as e:
-            print(f"Error analyzing response: {e}")
             return 5.0, "Unable to analyze response due to technical issues."
 
     def generate_final_recommendation(self, interview_responses, resume_context=""):
-        """Generate final interview recommendation and overall score"""
         responses_summary = "\n".join([
             f"Q{i+1}: {resp.question}\nA{i+1}: {resp.transcript}\nScore: {resp.score}\n"
             for i, resp in enumerate(interview_responses)
@@ -154,64 +139,50 @@ class OpenAIService:
             except json.JSONDecodeError:
                 return {
                     "overall_score": 5.0,
-                    "recommendation": "Consider - Analysis completed but recommendation format was unexpected.",
+                    "recommendation": "Consider - format unexpected",
                     "strengths": ["Analysis completed"],
-                    "areas_for_improvement": ["Unable to provide specific feedback"]
+                    "areas_for_improvement": ["Unable to parse response"]
                 }
-
         except Exception as e:
-            print(f"Error generating recommendation: {e}")
             return {
                 "overall_score": 5.0,
-                "recommendation": "Consider - Unable to generate recommendation due to technical issues.",
+                "recommendation": "Consider - technical error",
                 "strengths": ["Interview completed"],
                 "areas_for_improvement": ["Technical analysis unavailable"]
             }   
 
 
 class TwilioService:
-    """Service for Twilio voice call integration"""
-    
     def __init__(self):
         self.client = Client(
             os.getenv('TWILIO_ACCOUNT_SID'),
             os.getenv('TWILIO_AUTH_TOKEN')
         )
         self.phone_number = os.getenv('TWILIO_PHONE_NUMBER')
-    
+     
     def initiate_call(self, interview_id, candidate_phone, questions):
-        """Initiate a voice call to the candidate"""
         try:
-            # Parse whitelist from env
-            whitelist_env = os.getenv('WHITELISTED_NUMBERS', '["*"]')
-            try:
-                whitelisted_numbers = json.loads(whitelist_env)
-            except json.JSONDecodeError:
-                whitelisted_numbers = ["*"]
+            webhook_base_url = os.getenv('WEBHOOK_BASE_URL', 'http://localhost:8000')
+            if not webhook_base_url.endswith('/'):
+                webhook_base_url += '/'
+            
+            twiml = self._create_interview_twiml(interview_id, 1, questions, webhook_base_url)
 
-            # Check if number is allowed
-            if '*' not in whitelisted_numbers and candidate_phone not in whitelisted_numbers:
-                raise ValueError(f"Phone number {candidate_phone} is not whitelisted")
-
-            twiml = self._create_interview_twiml(interview_id, question_number=1, questions=questions)
-
-            # Make the call
             call = self.client.calls.create(
                 twiml=twiml,
                 to=candidate_phone,
                 from_=self.phone_number,
                 record=True,
-                status_callback=f"{os.getenv('WEBHOOK_BASE_URL', 'http://localhost:8000')}/api/webhooks/call-status/",
+                status_callback=f"{webhook_base_url}api/webhooks/call-status/",
                 status_callback_event=['completed']
             )
 
             return call.sid
 
         except Exception as e:
-            print(f"Error initiating call: {e}")
             raise
-        
-    def _create_interview_twiml(self, interview_id, question_number, questions):
+         
+    def _create_interview_twiml(self, interview_id, question_number, questions, webhook_base_url):
         response = VoiceResponse()
 
         if question_number <= len(questions):
@@ -222,21 +193,18 @@ class TwilioService:
             response.record(
                 max_length=120,
                 play_beep=True,
-                action=f"{os.getenv('WEBHOOK_BASE_URL')}/api/webhooks/record-response/?interview_id={interview_id}&question_number={question_number}",
+                action=f"{webhook_base_url}api/webhooks/record-response/?interview_id={interview_id}&question_number={question_number}",
                 method='POST'
             )
         else:
-            response.say("Thank you for completing the interview. We will review your responses and get back to you soon. Goodbye!")
+            response.say("Thank you for completing the interview. Goodbye!")
             response.hangup()
 
         return str(response)
 
 
 class ResumeParserService:
-    """Service for parsing resume files"""
-    
     def parse_resume(self, file):
-        """Parse PDF or DOCX resume and extract text"""
         try:
             if file.name.lower().endswith('.pdf'):
                 return self._parse_pdf(file)
@@ -245,11 +213,9 @@ class ResumeParserService:
             else:
                 raise ValueError("Unsupported file format. Please upload PDF or DOCX.")
         except Exception as e:
-            print(f"Error parsing resume: {e}")
             return "Unable to parse resume content."
-    
+     
     def _parse_pdf(self, file):
-        """Parse PDF file"""
         try:
             pdf_reader = PyPDF2.PdfReader(file)
             text = ""
@@ -257,11 +223,9 @@ class ResumeParserService:
                 text += page.extract_text() + "\n"
             return text.strip()
         except Exception as e:
-            print(f"Error parsing PDF: {e}")
             return "Unable to extract text from PDF."
-    
+     
     def _parse_docx(self, file):
-        """Parse DOCX file"""
         try:
             doc = Document(file)
             text = ""
@@ -269,5 +233,75 @@ class ResumeParserService:
                 text += paragraph.text + "\n"
             return text.strip()
         except Exception as e:
-            print(f"Error parsing DOCX: {e}")
             return "Unable to extract text from DOCX."
+
+
+class TranscriptionService:
+    def __init__(self):
+        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.twilio_client = Client(
+            os.getenv("TWILIO_ACCOUNT_SID"),
+            os.getenv("TWILIO_AUTH_TOKEN")
+        )
+
+    def transcribe_audio(self, audio_url: str) -> str:
+        try:
+            recording_sid = self._extract_recording_sid(audio_url)
+            if not recording_sid:
+                raise ValueError("Invalid recording SID")
+
+            recording = self.twilio_client.recordings(recording_sid).fetch()
+
+            waited = 0
+            while getattr(recording, "status", "") != "completed" and waited < 30:
+                time.sleep(5)
+                waited += 5
+                recording = self.twilio_client.recordings(recording_sid).fetch()
+
+            if getattr(recording, "status", "") != "completed":
+                raise Exception(f"Recording not completed (status={recording.status})")
+
+            base_uri = recording.uri.replace('.json', '')
+            if not base_uri.endswith('.mp3'):
+                media_url = f"https://api.twilio.com{base_uri}.mp3"
+            else:
+                media_url = f"https://api.twilio.com{base_uri}"
+
+            response = requests.get(
+                media_url,
+                auth=(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN")),
+                timeout=30
+            )
+            if response.status_code != 200:
+                raise Exception(f"Failed to download audio (HTTP {response.status_code})")
+
+            audio_data = response.content
+
+            transcript = self.openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=("audio.mp3", io.BytesIO(audio_data), "audio/mpeg"),
+                response_format="text"
+            )
+
+            return transcript.strip()
+
+        except Exception as e:
+            return f"Transcription failed: {e}"
+
+    def _extract_recording_sid(self, audio_url: str) -> str | None:
+        try:
+            if "/Recordings/" in audio_url:
+                sid = audio_url.split("/Recordings/")[-1].split("?")[0]
+            elif "/recordings/" in audio_url:
+                sid = audio_url.split("/recordings/")[-1].split("?")[0]
+            else:
+                sid = audio_url.split("/")[-1].split("?")[0]
+            
+            if sid.startswith("RE"):
+                sid = sid.split(".")[0]
+                return sid
+            
+            return None
+
+        except Exception:
+            return None
