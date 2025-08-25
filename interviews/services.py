@@ -1,6 +1,7 @@
 import os
 import logging
 import requests
+import time
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 import PyPDF2
@@ -30,7 +31,6 @@ twilio_logger.info("Twilio: Twilio service logger initialized")
 
 from openai import OpenAI
 import openai
-# Set your OpenAI API key from environment variable
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -38,8 +38,6 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
 class OpenAIService:
-    """Service for generating interview questions and analyzing responses using OpenAI v1.0+"""
-
     def __init__(self):
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         openai_logger.info(f"OpenAIService: Initialized with model {self.model}")
@@ -80,7 +78,6 @@ class OpenAIService:
                 raise  # give up after last attempt or non-retryable error
 
     def clean_questions(self, raw_questions):
-        """Cleans a list of questions returned by AI"""
         cleaned = []
         for q in raw_questions:
             if not q or q.lower() == "json":
@@ -145,7 +142,6 @@ class OpenAIService:
             return self.clean_questions(fallback_questions)
 
     def analyze_response(self, question, response_text, resume_context=""):
-        """Analyze a candidate's response and provide score and feedback"""
         prompt = f"""
         Analyze this interview response and provide a score (0–10) and feedback.
 
@@ -247,7 +243,6 @@ class TwilioService:
             twilio_logger.error("TwilioService: TWILIO_PHONE_NUMBER not set")
 
     def initiate_call(self, interview_id, candidate_phone, questions):
-        """Initiate a voice call to the candidate"""
         try:
             if not interview_id:
                 raise ValueError("interview_id cannot be empty")
@@ -370,9 +365,8 @@ class ResumeParserService:
             print(f"[ERROR] ResumeParserService: Error parsing resume {file.name}: {str(e)}")
             logger.error(f"ResumeParserService: Error parsing resume {file.name}: {str(e)}", exc_info=True)
             return "Unable to parse resume content."
-    
+     
     def _parse_pdf(self, file):
-        """Parse PDF file"""
         try:
             print(f"[DEBUG] ResumeParserService: Starting PDF parsing for {file.name}")
             logger.info(f"ResumeParserService: Starting PDF parsing for {file.name}")
@@ -398,9 +392,8 @@ class ResumeParserService:
             print(f"[ERROR] ResumeParserService: Error parsing PDF {file.name}: {str(e)}")
             logger.error(f"ResumeParserService: Error parsing PDF {file.name}: {str(e)}", exc_info=True)
             return "Unable to extract text from PDF."
-    
+     
     def _parse_docx(self, file):
-        """Parse DOCX file"""
         try:
             print(f"[DEBUG] ResumeParserService: Starting DOCX parsing for {file.name}")
             logger.info(f"ResumeParserService: Starting DOCX parsing for {file.name}")
@@ -465,14 +458,14 @@ class TranscriptionService:
             if getattr(recording, "status", "") != "completed":
                 raise Exception(f"Recording not completed (status={recording.status})")
 
+
             # Construct media URL
             media_url = f"https://api.twilio.com{recording.uri.replace('.json', '')}.mp3"
-            logger.debug(f"TranscriptionService: Media URL = {media_url}")
 
             # Download audio
-            response = requests.get(
-                media_url,
-                auth=(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN")),
+
+            base_uri = recording.uri.replace('.json', '')
+            if not base_uri.endswith('.mp3'):
                 timeout=30
             )
             if response.status_code != 200:

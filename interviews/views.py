@@ -195,8 +195,6 @@ class ListCandidatesView(BaseAPIView):
 
 
 class TriggerInterviewView(BaseAPIView):
-    """Trigger an interview call"""
-    
     def post(self, request):
         logger.info("TriggerInterviewView: Processing interview trigger request")
         serializer = CreateInterviewSerializer(data=request.data)
@@ -652,7 +650,6 @@ class TwilioWebhookView(View):
             return HttpResponse("Internal server error", status=500)
 
     def handle_call_status(self, request):
-        """Handle call status webhook"""
         call_sid = request.POST.get('CallSid')
         call_status = request.POST.get('CallStatus')
         recording_url = request.POST.get('RecordingUrl')
@@ -756,7 +753,6 @@ class TwilioWebhookView(View):
             return HttpResponse("Error processing response", status=500)
 
     def generate_final_results(self, interview):
-        """Generate final interview results after all questions are done"""
         responses = InterviewResponse.objects.filter(interview=interview).order_by('question_number')
         if not responses.exists():
             return
