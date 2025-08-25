@@ -1,0 +1,281 @@
+{
+    "info": {
+        "_postman_id": "twilio-audio-apis",
+        "name": "Twilio Audio Recording APIs",
+        "description": "Collection for testing Twilio audio recording and transcription APIs",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "List All Recordings",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/twilio/recordings/?limit=20",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "twilio",
+                        "recordings",
+                        ""
+                    ],
+                    "query": [
+                        {
+                            "key": "limit",
+                            "value": "20"
+                        }
+                    ]
+                },
+                "description": "Get all available Twilio recordings with detailed information"
+            },
+            "response": []
+        },
+        {
+            "name": "List Recordings with Filters",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/twilio/recordings/?limit=10&status=completed&date_created_after=2024-01-01",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "twilio",
+                        "recordings",
+                        ""
+                    ],
+                    "query": [
+                        {
+                            "key": "limit",
+                            "value": "10"
+                        },
+                        {
+                            "key": "status",
+                            "value": "completed"
+                        },
+                        {
+                            "key": "date_created_after",
+                            "value": "2024-01-01"
+                        }
+                    ]
+                },
+                "description": "Get recordings with filters (status, date range)"
+            },
+            "response": []
+        },
+        {
+            "name": "Get Transcript by Recording SID",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}",
+                        "type": "text"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"recording_sid\": \"RE1234567890abcdef\"\n}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/twilio/transcript/",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "twilio",
+                        "transcript",
+                        ""
+                    ]
+                },
+                "description": "Get transcript for a specific recording using its SID"
+            },
+            "response": []
+        },
+        {
+            "name": "Get Transcript by Audio URL",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}",
+                        "type": "text"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"audio_url\": \"https://api.twilio.com/2010-04-01/Accounts/AC1234567890abcdef/Recordings/RE1234567890abcdef.mp3\"\n}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/twilio/transcript/",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "twilio",
+                        "transcript",
+                        ""
+                    ]
+                },
+                "description": "Get transcript using direct audio URL"
+            },
+            "response": []
+        },
+        {
+            "name": "Test Error - Missing API Key",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{base_url}}/api/twilio/recordings/",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "twilio",
+                        "recordings",
+                        ""
+                    ]
+                },
+                "description": "Test error handling when API key is missing"
+            },
+            "response": []
+        },
+        {
+            "name": "Test Error - Invalid Recording SID",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}",
+                        "type": "text"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"recording_sid\": \"INVALID_SID\"\n}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/twilio/transcript/",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "twilio",
+                        "transcript",
+                        ""
+                    ]
+                },
+                "description": "Test error handling with invalid recording SID"
+            },
+            "response": []
+        },
+        {
+            "name": "Test Error - Missing Parameters",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "X-API-Key",
+                        "value": "{{api_key}}",
+                        "type": "text"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/twilio/transcript/",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "twilio",
+                        "transcript",
+                        ""
+                    ]
+                },
+                "description": "Test error handling with missing parameters"
+            },
+            "response": []
+        }
+    ],
+    "event": [
+        {
+            "listen": "prerequest",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    ""
+                ]
+            }
+        },
+        {
+            "listen": "test",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    ""
+                ]
+            }
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:8000",
+            "type": "string"
+        },
+        {
+            "key": "api_key",
+            "value": "your_api_key_here",
+            "type": "string"
+        }
+    ]
+}

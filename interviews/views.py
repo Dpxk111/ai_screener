@@ -12,8 +12,9 @@ from django.views import View
 import json
 from datetime import datetime
 from django.utils import timezone
-from django.utils import timezone
 from django.db.models import Q
+from django.db import transaction
+
 
 # Set up logger for this module
 logger = logging.getLogger('interviews')
@@ -666,7 +667,9 @@ class TwilioWebhookView(View):
                 answered_questions = InterviewResponse.objects.filter(interview=interview).count()
                 if answered_questions >= 1:
                     interview.status = 'completed'
-                    interview.audio_url = recording_url
+                    # Convert .json URL to .mp3 URL for audio access
+                    audio_url = recording_url.replace('.json', '.mp3') if recording_url else None
+                    interview.audio_url = audio_url
                     interview.twilio_recording_sid = recording_sid
                     interview.duration = int(call_duration) if call_duration else None
                     interview.completed_at = timezone.now()
@@ -711,13 +714,16 @@ class TwilioWebhookView(View):
                 question_number=question_number,
                 defaults={"question": question_text, "transcript": "Processing..."}
             )
-            response_obj.audio_url = recording_url
+            # Convert .json URL to .mp3 URL for audio access
+            audio_url = recording_url.replace('.json', '.mp3') if recording_url else None
+            response_obj.audio_url = audio_url
             response_obj.save()
 
             # Transcription
             try:
                 transcription_service = TranscriptionService()
-                transcript = transcription_service.transcribe_audio(recording_url)
+                # Use the converted .mp3 URL for transcription
+                transcript = transcription_service.transcribe_audio(audio_url)
                 response_obj.transcript = transcript
                 response_obj.save()
             except Exception as e:
@@ -850,7 +856,7 @@ class TwilioRecordingsListView(APIView):
                     # Get media URL
                     media_url = None
                     if hasattr(recording, 'uri') and recording.uri:
-                        media_url = f"https://api.twilio.com{recording.uri}.mp3"
+                        media_url = f"https://api.twilio.com{recording.uri.replace('.json', '')}.mp3"
                     elif hasattr(recording, 'media_location') and recording.media_location:
                         media_url = recording.media_location
                     
@@ -1054,6 +1060,107 @@ class TwilioCallDebugView(APIView):
         except Exception as e:
             print(f"[ERROR] TwilioCallDebugView: Unexpected error: {str(e)}")
             logger.error(f"TwilioCallDebugView: Unexpected error: {str(e)}", exc_info=True)
+            return Response({
+                'error': 'Unexpected error occurred',
+                'details': str(e)
+            }, status=500)
+
+
+class TwilioTranscriptView(BaseAPIView):
+    """API to get transcript for a specific Twilio recording"""
+    
+    def post(self, request):
+        """Get transcript for a specific audio recording"""
+        try:
+            print(f"[DEBUG] TwilioTranscriptView: Starting transcript request")
+            logger.info("TwilioTranscriptView: Starting transcript request")
+            
+            # Validate request data
+            recording_sid = request.data.get('recording_sid')
+            audio_url = request.data.get('audio_url')
+            
+            if not recording_sid and not audio_url:
+                return Response({
+                    'error': 'Either recording_sid or audio_url is required'
+                }, status=400)
+            
+            print(f"[DEBUG] TwilioTranscriptView: Recording SID: {recording_sid}")
+            print(f"[DEBUG] TwilioTranscriptView: Audio URL: {audio_url}")
+            
+            # Initialize transcription service
+            transcription_service = TranscriptionService()
+            
+            # If audio_url is provided, use it directly
+            if audio_url:
+                print(f"[DEBUG] TwilioTranscriptView: Using provided audio URL for transcription")
+                transcript = transcription_service.transcribe_audio(audio_url)
+                
+                return Response({
+                    'recording_sid': recording_sid,
+                    'audio_url': audio_url,
+                    'transcript': transcript,
+                    'status': 'completed',
+                    'timestamp': timezone.now().isoformat()
+                })
+            
+            # If only recording_sid is provided, construct the audio URL
+            if recording_sid:
+                print(f"[DEBUG] TwilioTranscriptView: Constructing audio URL from recording SID")
+                
+                # Initialize Twilio client
+                from twilio.rest import Client
+                twilio_client = Client(
+                    os.getenv('TWILIO_ACCOUNT_SID'),
+                    os.getenv('TWILIO_AUTH_TOKEN')
+                )
+                
+                # Get recording details
+                try:
+                    recording = twilio_client.recordings(recording_sid).fetch()
+                    print(f"[DEBUG] TwilioTranscriptView: Recording details retrieved")
+                    
+                    # Construct media URL
+                    if hasattr(recording, 'uri') and recording.uri:
+                        audio_url = f"https://api.twilio.com{recording.uri.replace('.json', '')}.mp3"
+                    elif hasattr(recording, 'media_location') and recording.media_location:
+                        audio_url = recording.media_location
+                        audio_url = audio_url.replace('.json', '')
+                    else:
+                        return Response({
+                            'error': 'Could not construct audio URL from recording'
+                        }, status=400)
+                    
+                    print(f"[DEBUG] TwilioTranscriptView: Constructed audio URL: {audio_url}")
+
+                    print("AAAAAAAAAAAAAAAAAAAAAAAAAAA++++++++++++++++++++++++")
+                    
+                    # Transcribe the audio
+                    transcript = transcription_service.transcribe_audio(audio_url)
+                    
+                    return Response({
+                        'recording_sid': recording_sid,
+                        'audio_url': audio_url,
+                        'transcript': transcript,
+                        'recording_details': {
+                            'status': getattr(recording, 'status', None),
+                            'duration': getattr(recording, 'duration', None),
+                            'date_created': getattr(recording, 'date_created', None),
+                            'call_sid': getattr(recording, 'call_sid', None)
+                        },
+                        'status': 'completed',
+                        'timestamp': timezone.now().isoformat()
+                    })
+                    
+                except Exception as e:
+                    print(f"[ERROR] TwilioTranscriptView: Error fetching recording details: {str(e)}")
+                    logger.error(f"TwilioTranscriptView: Error fetching recording details: {str(e)}", exc_info=True)
+                    return Response({
+                        'error': f'Failed to fetch recording details: {str(e)}'
+                    }, status=500)
+            
+        except Exception as e:
+            print(f"[ERROR] TwilioTranscriptView: Unexpected error: {str(e)}")
+            logger.error(f"TwilioTranscriptView: Unexpected error: {str(e)}", exc_info=True)
             return Response({
                 'error': 'Unexpected error occurred',
                 'details': str(e)

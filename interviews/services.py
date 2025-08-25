@@ -1,6 +1,7 @@
 import os
 import logging
 import requests
+import time
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 import PyPDF2
@@ -450,6 +451,7 @@ class TranscriptionService:
             logger.info(f"TranscriptionService: Starting transcription for {audio_url}")
 
             recording_sid = self._extract_recording_sid(audio_url)
+            logger.debug(f"TranscriptionService: Extracted recording SID: {recording_sid}")
             if not recording_sid:
                 raise ValueError("Invalid recording SID")
 
@@ -465,8 +467,12 @@ class TranscriptionService:
             if getattr(recording, "status", "") != "completed":
                 raise Exception(f"Recording not completed (status={recording.status})")
 
-            # Construct media URL
-            media_url = f"https://api.twilio.com{recording.uri.replace('.json', '')}.mp3"
+            # Construct media URL - ensure we have a clean .mp3 URL
+            base_uri = recording.uri.replace('.json', '')
+            if not base_uri.endswith('.mp3'):
+                media_url = f"https://api.twilio.com{base_uri}.mp3"
+            else:
+                media_url = f"https://api.twilio.com{base_uri}"
             logger.debug(f"TranscriptionService: Media URL = {media_url}")
 
             # Download audio
@@ -499,13 +505,20 @@ class TranscriptionService:
         """Extract Twilio recording SID from URL"""
         try:
             if "/Recordings/" in audio_url:
-                return audio_url.split("/Recordings/")[-1].split("?")[0]
-            if "/recordings/" in audio_url:
-                return audio_url.split("/recordings/")[-1].split("?")[0]
-
-            # fallback: last segment
-            sid = audio_url.split("/")[-1].split("?")[0]
-            return sid if sid.startswith("RE") else None
+                sid = audio_url.split("/Recordings/")[-1].split("?")[0]
+            elif "/recordings/" in audio_url:
+                sid = audio_url.split("/recordings/")[-1].split("?")[0]
+            else:
+                # fallback: last segment
+                sid = audio_url.split("/")[-1].split("?")[0]
+            
+            # Remove any file extensions (.mp3, .json, etc.) to get clean SID
+            if sid.startswith("RE"):
+                # Remove any extensions after the SID
+                sid = sid.split(".")[0]
+                return sid
+            
+            return None
 
         except Exception:
             return None
