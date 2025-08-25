@@ -229,11 +229,9 @@ class TriggerInterviewView(BaseAPIView):
                     call_sid = twilio_service.initiate_call(
                         str(interview.id),
                         candidate.phone,
-                        job_description.questions
+                        job_description.questions[0]
                     )
-                    logger.info(f"TriggerInterviewView: Initiated Twilio call with SID: {call_sid}")
                 except Exception as e:
-                    logger.error(f"TriggerInterviewView: Failed to initiate Twilio call: {str(e)}", exc_info=True)
                     interview.status = 'failed'
                     interview.save()
                     raise e
@@ -653,135 +651,81 @@ class TwilioWebhookView(View):
             return HttpResponse("Internal server error", status=500)
 
     def handle_call_status(self, request):
-        """Handle call status webhook"""
         call_sid = request.POST.get('CallSid')
         call_status = request.POST.get('CallStatus')
         recording_url = request.POST.get('RecordingUrl')
         recording_sid = request.POST.get('RecordingSid')
-        call_duration = request.POST.get('CallDuration')
 
         try:
             interview = Interview.objects.get(twilio_call_sid=call_sid)
-
+            
             if call_status == 'completed':
-                answered_questions = InterviewResponse.objects.filter(interview=interview).count()
-                if answered_questions >= 1:
-                    interview.status = 'completed'
-                    # Convert .json URL to .mp3 URL for audio access
-                    audio_url = recording_url.replace('.json', '.mp3') if recording_url else None
-                    interview.audio_url = audio_url
-                    interview.twilio_recording_sid = recording_sid
-                    interview.duration = int(call_duration) if call_duration else None
-                    interview.completed_at = timezone.now()
-                    interview.save()
-                    self.generate_final_results(interview)
-                else:
-                    interview.status = 'failed'
-                    interview.completed_at = timezone.now()
-                    interview.save()
-            elif call_status in ['failed', 'busy', 'no-answer']:
+                audio_url = recording_url.replace('.json', '.mp3') if recording_url else None
+                interview.audio_url = audio_url
+                interview.twilio_recording_sid = recording_sid
+                interview.status = 'completed'
+                interview.completed_at = timezone.now()
+                interview.save()
+            else:
                 interview.status = 'failed'
                 interview.completed_at = timezone.now()
                 interview.save()
 
             return HttpResponse(status=200)
-
-        except Interview.DoesNotExist:
+        except:
             return HttpResponse(status=404)
-        except Exception as e:
-            logger.error(f"Call status error: {str(e)}", exc_info=True)
-            return HttpResponse(status=500)
 
     def handle_record_response(self, request):
-        """Handle recorded response and return next question"""
         try:
             interview_id = request.GET.get('interview_id')
-            question_number = int(request.GET.get('question_number', 1))
-
             interview = get_object_or_404(Interview, id=interview_id)
-            questions = interview.job_description.questions
-
+            
             recording_url = request.POST.get('RecordingUrl')
-            recording_sid = request.POST.get('RecordingSid')
-
-            if question_number <= len(questions):
-                question_text = questions[question_number - 1]
-            else:
-                question_text = f"Question {question_number}"
-
-            response_obj, created = InterviewResponse.objects.get_or_create(
-                interview=interview,
-                question_number=question_number,
-                defaults={"question": question_text, "transcript": "Processing..."}
-            )
-            # Convert .json URL to .mp3 URL for audio access
             audio_url = recording_url.replace('.json', '.mp3') if recording_url else None
-            response_obj.audio_url = audio_url
-            response_obj.save()
+            
+            response_obj = InterviewResponse.objects.create(
+                interview=interview,
+                question_number=1,
+                question=interview.job_description.questions[0],
+                audio_url=audio_url,
+                transcript="Processing..."
+            )
 
-            # Transcription
             try:
                 transcription_service = TranscriptionService()
-                # Use the converted .mp3 URL for transcription
                 transcript = transcription_service.transcribe_audio(audio_url)
                 response_obj.transcript = transcript
                 response_obj.save()
-            except Exception as e:
-                logger.error(f"Transcription error: {str(e)}", exc_info=True)
+            except:
                 response_obj.transcript = "Unable to transcribe audio"
                 response_obj.save()
 
-            # Analysis
             try:
                 openai_service = OpenAIService()
                 score, feedback = openai_service.analyze_response(
-                    question_text,
+                    response_obj.question,
                     response_obj.transcript,
                     interview.candidate.resume_text
                 )
                 response_obj.score = score
                 response_obj.feedback = feedback
                 response_obj.save()
-            except Exception as e:
-                logger.error(f"Analysis error: {str(e)}", exc_info=True)
+            except:
+                pass
 
-            # Mark interview completed
             interview.status = 'completed'
             interview.completed_at = timezone.now()
             interview.save()
-            self.generate_final_results(interview)
 
-            # End call
             response = VoiceResponse()
-            response.say("Thank you for completing the interview. We will review your response and get back to you soon. Goodbye!")
+            response.say("Thank you for completing the interview. Goodbye!")
             response.hangup()
             return HttpResponse(str(response), content_type='text/xml')
 
-        except Exception as e:
-            logger.error(f"Record response error: {str(e)}", exc_info=True)
-            return HttpResponse("Error processing response", status=500)
+        except:
+            return HttpResponse("Error", status=500)
 
-    def generate_final_results(self, interview):
-        """Generate final interview results after all questions are done"""
-        responses = InterviewResponse.objects.filter(interview=interview).order_by('question_number')
-        if not responses.exists():
-            return
 
-        try:
-            openai_service = OpenAIService()
-            result_data = openai_service.generate_final_recommendation(
-                responses,
-                interview.candidate.resume_text
-            )
-            InterviewResult.objects.create(
-                interview=interview,
-                overall_score=result_data.get('overall_score', 5.0),
-                recommendation=result_data.get('recommendation', 'Consider'),
-                strengths=result_data.get('strengths', []),
-                areas_for_improvement=result_data.get('areas_for_improvement', [])
-            )
-        except Exception as e:
-            logger.error(f"Final results error: {str(e)}", exc_info=True)
 class TwilioRecordingsListView(APIView):
     """API to list all available Twilio recordings"""
     

@@ -230,8 +230,6 @@ class OpenAIService:
                 "areas_for_improvement": ["Technical analysis unavailable"],
             }
 class TwilioService:
-    """Service for Twilio voice call integration"""
-
     def __init__(self):
         self.client = Client(
             os.getenv("TWILIO_ACCOUNT_SID"),
@@ -239,100 +237,43 @@ class TwilioService:
         )
         self.phone_number = os.getenv("TWILIO_PHONE_NUMBER")
 
-        # Validate configuration
-        if not os.getenv("TWILIO_ACCOUNT_SID"):
-            twilio_logger.error("TwilioService: TWILIO_ACCOUNT_SID not set")
-        if not os.getenv("TWILIO_AUTH_TOKEN"):
-            twilio_logger.error("TwilioService: TWILIO_AUTH_TOKEN not set")
-        if not self.phone_number:
-            twilio_logger.error("TwilioService: TWILIO_PHONE_NUMBER not set")
-
-    def initiate_call(self, interview_id, candidate_phone, questions):
-        """Initiate a voice call to the candidate"""
+    def initiate_call(self, interview_id, candidate_phone, question):
         try:
-            if not interview_id:
-                raise ValueError("interview_id cannot be empty")
-            if not candidate_phone:
-                raise ValueError("candidate_phone cannot be empty")
-            if not questions:
-                raise ValueError("questions list cannot be empty")
-
-            # Whitelist check
-            whitelist_env = os.getenv("WHITELISTED_NUMBERS", '["*"]')
-            try:
-                whitelisted_numbers = json.loads(whitelist_env)
-            except json.JSONDecodeError:
-                whitelisted_numbers = ["*"]
-
-            if "*" not in whitelisted_numbers and candidate_phone not in whitelisted_numbers:
-                raise ValueError(f"Phone number {candidate_phone} is not whitelisted")
-
-            # Webhook base URL
             webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://localhost:8000")
             if not webhook_base_url.endswith("/"):
                 webhook_base_url += "/"
+            
+            record_action_url = f"{webhook_base_url}api/webhooks/record-response/?interview_id={interview_id}"
             status_callback_url = f"{webhook_base_url}api/webhooks/call-status/"
 
-            # TwiML for first question
-            twiml = self._create_interview_twiml(interview_id, questions)
+            response = VoiceResponse()
+            response.say("Hello! Welcome to your automated interview.")
+            response.pause(length=1)
+            response.say(f"Question: {question}")
+            response.pause(length=1)
+            response.say("Please provide your answer now.")
 
-            # Create call
+            response.record(
+                max_length=120,
+                play_beep=True,
+                action=record_action_url,
+                method="POST",
+                timeout=10,
+                transcribe=False,
+            )
+
             call = self.client.calls.create(
-                twiml=twiml,
+                twiml=str(response),
                 to=candidate_phone,
                 from_=self.phone_number,
                 record=True,
                 status_callback=status_callback_url,
                 status_callback_event=["completed"],
             )
-            twilio_logger.info(f"TwilioService: Call initiated, SID={call.sid}")
             return call.sid
 
         except Exception as e:
-            twilio_logger.error(f"TwilioService: Error initiating call: {str(e)}", exc_info=True)
             raise
-
-    def _create_interview_twiml(self, interview_id, questions):
-        """Generate TwiML for asking the first interview question"""
-        try:
-            response = VoiceResponse()
-
-            if questions:
-                response.say("Hello! Welcome to your automated interview. Let's begin.")
-                response.pause(length=1)
-
-                response.say(f"Question: {questions[0]}")
-                response.pause(length=1)
-                response.say("Please provide your answer now.")
-
-                webhook_base_url = os.getenv("WEBHOOK_BASE_URL", "http://localhost:8000")
-                if not webhook_base_url.endswith("/"):
-                    webhook_base_url += "/"
-                record_action_url = (
-                    f"{webhook_base_url}api/webhooks/record-response/"
-                    f"?interview_id={interview_id}&question_number=1"
-                )
-
-                response.record(
-                    max_length=120,
-                    play_beep=True,
-                    action=record_action_url,
-                    method="POST",
-                    timeout=10,
-                    transcribe=False,
-                )
-            else:
-                response.say("No interview questions available. Goodbye!")
-                response.hangup()
-
-            return str(response)
-
-        except Exception as e:
-            twilio_logger.error(f"TwilioService: Error creating TwiML: {str(e)}", exc_info=True)
-            fallback = VoiceResponse()
-            fallback.say("We're experiencing technical difficulties. Please try again later.")
-            fallback.hangup()
-            return str(fallback)
 
 class ResumeParserService:
     """Service for parsing resume files"""
@@ -446,18 +387,13 @@ class TranscriptionService:
         logger.debug("TranscriptionService: Twilio client initialized")
 
     def transcribe_audio(self, audio_url: str) -> str:
-        """Fetch recording from Twilio and transcribe with OpenAI Whisper"""
         try:
-            logger.info(f"TranscriptionService: Starting transcription for {audio_url}")
-
             recording_sid = self._extract_recording_sid(audio_url)
-            logger.debug(f"TranscriptionService: Extracted recording SID: {recording_sid}")
             if not recording_sid:
                 raise ValueError("Invalid recording SID")
 
             recording = self.twilio_client.recordings(recording_sid).fetch()
 
-            # Wait until recording is completed
             waited = 0
             while getattr(recording, "status", "") != "completed" and waited < 30:
                 time.sleep(5)
@@ -467,15 +403,12 @@ class TranscriptionService:
             if getattr(recording, "status", "") != "completed":
                 raise Exception(f"Recording not completed (status={recording.status})")
 
-            # Construct media URL - ensure we have a clean .mp3 URL
             base_uri = recording.uri.replace('.json', '')
             if not base_uri.endswith('.mp3'):
                 media_url = f"https://api.twilio.com{base_uri}.mp3"
             else:
                 media_url = f"https://api.twilio.com{base_uri}"
-            logger.debug(f"TranscriptionService: Media URL = {media_url}")
 
-            # Download audio
             response = requests.get(
                 media_url,
                 auth=(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN")),
@@ -486,19 +419,15 @@ class TranscriptionService:
 
             audio_data = response.content
 
-            # Transcribe with Whisper
             transcript = self.openai_client.audio.transcriptions.create(
                 model="whisper-1",
                 file=("audio.mp3", io.BytesIO(audio_data), "audio/mpeg"),
                 response_format="text"
             )
 
-            result = transcript.strip()
-            logger.info(f"TranscriptionService: Transcription successful")
-            return result
+            return transcript.strip()
 
         except Exception as e:
-            logger.error(f"TranscriptionService: Transcription failed: {e}", exc_info=True)
             return f"Transcription failed: {e}"
 
     def _extract_recording_sid(self, audio_url: str) -> str | None:
